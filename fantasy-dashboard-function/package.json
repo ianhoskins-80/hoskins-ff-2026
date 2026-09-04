@@ -1,0 +1,13 @@
+{
+  "name": "fantasy-dashboard-functions",
+  "version": "1.0.0",
+  "description": "Fetches and caches ESPN fantasy football league data for the dashboard.",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "@google-cloud/functions-framework": "^3.4.0",
+    "@google-cloud/firestore": "^7.6.0"
+  }
+}

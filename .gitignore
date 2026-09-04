@@ -1,0 +1,17 @@
+# Firebase
+.firebase/
+firebase-debug.log*
+firebase-debug.*.log*
+
+# Node
+node_modules/
+npm-debug.log*
+*.log
+
+# Env / secrets
+.env
+*.key.json
+service-account*.json
+
+# OS
+.DS_Store

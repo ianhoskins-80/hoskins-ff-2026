@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hoskins Fantastical Family Football</title>
+<style>
+  :root {
+    --bg: #14161c;
+    --card: #1c1f28;
+    --text: #f0f1f4;
+    --text-dim: #9198a6;
+    --line: #2c303c;
+
+    --red: #d6483f;
+    --red-tint: rgba(214, 72, 63, 0.16);
+    --red-tint-strong: rgba(214, 72, 63, 0.28);
+
+    --blue: #3f7fd6;
+    --blue-tint: rgba(63, 127, 214, 0.16);
+    --blue-tint-strong: rgba(63, 127, 214, 0.28);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    padding: 28px 20px 60px;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+
+  h1 {
+    font-family: 'Arial Black', Impact, sans-serif;
+    font-weight: 900;
+    font-style: italic;
+    font-size: clamp(30px, 5vw, 48px);
+    letter-spacing: -0.5px;
+    margin: 0 0 4px;
+  }
+  .sub { color: var(--text-dim); font-size: 14px; margin-bottom: 8px; }
+
+  .last-updated { color: var(--text-dim); font-size: 12px; margin-bottom: 28px; }
+
+  h2.section-title {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-dim);
+    margin: 36px 0 14px;
+  }
+
+  /* ---- matchups, one block per league ---- */
+  .matchup-block { border-radius: 6px; overflow: hidden; margin-bottom: 18px; border: 1px solid var(--line); }
+  .matchup-block-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; color: #fff; font-weight: 700; font-size: 15px; }
+  .matchup-block-head a { color: #fff; text-decoration: none; }
+  .matchup-block-head a:hover { text-decoration: underline; }
+  .matchup-block.red .matchup-block-head { background: var(--red); }
+  .matchup-block.blue .matchup-block-head { background: var(--blue); }
+  .matchup-block-head .week-note { font-weight: 400; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; opacity: 0.85; }
+
+  .matchup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; padding: 14px; }
+  .matchup-block.red .matchup-grid { background: var(--red-tint); }
+  .matchup-block.blue .matchup-grid { background: var(--blue-tint); }
+
+  .matchup-card { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; }
+  .team-block { padding: 4px 0; }
+  .team-top { display: flex; justify-content: space-between; align-items: baseline; }
+  .team-top a.team-name { font-weight: 600; font-size: 13px; color: var(--text); text-decoration: none; }
+  .team-top a.team-name:hover { text-decoration: underline; }
+  .team-top .score { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--text-dim); }
+  .team-block.winning .score { font-weight: 700; }
+  .matchup-block.red .team-block.winning .score { color: var(--red); }
+  .matchup-block.blue .team-block.winning .score { color: var(--blue); }
+  .team-block.predicted a.team-name::after { content: " ▸"; }
+  .matchup-block.red .team-block.predicted a.team-name::after { color: var(--red); }
+  .matchup-block.blue .team-block.predicted a.team-name::after { color: var(--blue); }
+  .team-metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 10px; margin-top: 5px; }
+  .metric { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); }
+  .metric .metric-value { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+  .vs-divider { text-align: center; font-size: 10px; color: var(--text-dim); letter-spacing: 1px; padding: 4px 0; }
+  .pred-note { font-size: 10px; color: var(--text-dim); text-align: center; padding-top: 6px; border-top: 1px solid var(--line); margin-top: 8px; }
+
+  /* ---- combined standings table ---- */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; border-radius: 6px; overflow: hidden; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-dim); padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--card); }
+  th.num, td.num { text-align: right; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+
+  tr.row-red { background: var(--red-tint); border-left: 3px solid var(--red); }
+  tr.row-blue { background: var(--blue-tint); border-left: 3px solid var(--blue); }
+  tr.row-red:hover { background: var(--red-tint-strong); }
+  tr.row-blue:hover { background: var(--blue-tint-strong); }
+
+  .team-name { font-weight: 700; }
+  .team-owner { color: var(--text-dim); font-size: 12px; margin-left: 15px; }
+  .rank-badge { display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center; font-weight: 700; border-radius: 50%; font-size: 12px; color: #fff; }
+  tr.row-red .rank-badge { background: var(--red); }
+  tr.row-blue .rank-badge { background: var(--blue); }
+
+  .pct-bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 4px; width: 90px; }
+  .pct-fill { height: 100%; }
+  tr.row-red .pct-fill { background: var(--red); }
+  tr.row-blue .pct-fill { background: var(--blue); }
+
+  .empty-note { padding: 12px 4px; font-size: 12px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Hoskins Fantastical Family Football</h1>
+  <div class="last-updated" id="lastUpdated">Loading...</div>
+
+  <h2 class="section-title">This Week's Matchups</h2>
+  <div id="matchupsContainer"></div>
+
+  <h2 class="section-title">Combined Standings</h2>
+  <table>
+    <thead>
+      <tr>
+        <th></th>
+        <th>Team</th>
+        <th class="num">Record</th>
+        <th class="num">Pts For</th>
+        <th class="num">Playoff Odds</th>
+      </tr>
+    </thead>
+    <tbody id="standingsBody"></tbody>
+  </table>
+</div>
+
+<script>
+// ---------------------------------------------------------------------
+// Fill this in once the Cloud Function is deployed (see DEPLOYMENT.md).
+// Example: https://us-central1-my-project.cloudfunctions.net/getDashboard
+// ---------------------------------------------------------------------
+const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/getDashboard';
+
+let leagues = []; // populated from the API: [{ color, data }]
+
+function memberName(data, ownerId) {
+  const m = (data.members || []).find(mm => mm.id === ownerId);
+  return m ? (m.firstName + ' ' + m.lastName) : '';
+}
+
+// Best-effort "has this player's real NFL game started/finished" check.
+// ESPN includes a stats entry with statSourceId 0 once actual (non-projected)
+// stats exist for a player; until then only statSourceId 1 (projection) exists.
+function starterHasActualStats(entry) {
+  const stats = entry?.playerPoolEntry?.player?.stats || [];
+  return stats.some(s => s.statSourceId === 0);
+}
+
+function computePlayCounts(sideData) {
+  const entries = sideData?.rosterForCurrentScoringPeriod?.entries || [];
+  // lineupSlotId 20 = bench, 21 = IR -- exclude those, only count starters
+  const starters = entries.filter(e => e.lineupSlotId !== 20 && e.lineupSlotId !== 21);
+  const playing = starters.filter(starterHasActualStats).length;
+  const yetToPlay = starters.length - playing;
+  return { playing, yetToPlay };
+}
+
+function renderMatchupsBlock(league) {
+  const { data, color } = league;
+  const teams = data.teams || [];
+  const schedule = data.schedule || [];
+  const week = data.status?.currentMatchupPeriod ?? 1;
+  const weekGames = schedule.filter(g => g.matchupPeriodId === week);
+  if (!weekGames.length) return '';
+
+  const leagueUrl = `https://fantasy.espn.com/football/league?leagueId=${data.id}`;
+  const teamById = id => teams.find(t => t.id === id);
+  const teamUrl = teamId => `https://fantasy.espn.com/football/team?leagueId=${data.id}&teamId=${teamId}`;
+  const anyScores = weekGames.some(g => (g.home?.totalPoints || 0) > 0 || (g.away?.totalPoints || 0) > 0);
+  const anyProj = weekGames.some(g => (g.home?.totalProjectedPoints || 0) > 0 || (g.away?.totalProjectedPoints || 0) > 0);
+
+  const renderTeamBlock = (side, teamId, points, proj, isWinning, isPredicted) => {
+    const team = teamById(teamId);
+    const counts = computePlayCounts(side);
+    return `
+      <div class="team-block ${isWinning ? 'winning' : ''} ${isPredicted ? 'predicted' : ''}">
+        <div class="team-top">
+          <a class="team-name" href="${teamUrl(teamId)}" target="_blank" rel="noopener noreferrer">${team ? team.name : 'TBD'}</a>
+          <span class="score">${points.toFixed(1)}</span>
+        </div>
+        <div class="team-metrics">
+          <div class="metric"><span class="metric-label">Currently Playing</span><span class="metric-value">${counts.playing}</span></div>
+          <div class="metric"><span class="metric-label">Yet to Play</span><span class="metric-value">${counts.yetToPlay}</span></div>
+          <div class="metric"><span class="metric-label">Mins Left</span><span class="metric-value">—</span></div>
+          <div class="metric"><span class="metric-label">Projected</span><span class="metric-value">${proj.toFixed(1)}</span></div>
+        </div>
+      </div>`;
+  };
+
+  const cards = weekGames.map(g => {
+    const hp = g.home?.totalPoints ?? 0;
+    const ap = g.away?.totalPoints ?? 0;
+    const hProj = g.home?.totalProjectedPoints ?? 0;
+    const aProj = g.away?.totalProjectedPoints ?? 0;
+    const hasProj = hProj > 0 || aProj > 0;
+    const homeWinning = anyScores && hp > ap;
+    const awayWinning = anyScores && ap > hp;
+    const homePredicted = !anyScores && hasProj && hProj > aProj;
+    const awayPredicted = !anyScores && hasProj && aProj > hProj;
+    return `
+      <div class="matchup-card">
+        ${renderTeamBlock(g.away, g.away?.teamId, ap, aProj, awayWinning, awayPredicted)}
+        <div class="vs-divider">at</div>
+        ${renderTeamBlock(g.home, g.home?.teamId, hp, hProj, homeWinning, homePredicted)}
+        ${!anyScores && hasProj ? '<div class="pred-note">▸ predicted winner, based on weekly projections</div>' : ''}
+      </div>`;
+  }).join('');
+
+  const status = anyScores ? '' : (anyProj ? ' — projected' : ' — not yet started');
+
+  return `
+    <div class="matchup-block ${color}">
+      <div class="matchup-block-head">
+        <a href="${leagueUrl}" target="_blank" rel="noopener noreferrer">${data.settings?.name || 'League'}</a>
+        <span class="week-note">Week ${week}${status}</span>
+      </div>
+      <div class="matchup-grid">${cards}</div>
+    </div>`;
+}
+
+function renderAll() {
+  document.getElementById('matchupsContainer').innerHTML = leagues.map(renderMatchupsBlock).join('');
+
+  let allRows = [];
+  leagues.forEach(league => {
+    const { data, color } = league;
+    (data.teams || []).forEach(t => allRows.push({ team: t, data, color }));
+  });
+
+  allRows.sort((a, b) => {
+    const apf = a.team.record?.overall?.pointsFor ?? 0;
+    const bpf = b.team.record?.overall?.pointsFor ?? 0;
+    if (bpf !== apf) return bpf - apf;
+    return (a.team.currentProjectedRank ?? 99) - (b.team.currentProjectedRank ?? 99);
+  });
+
+  const rows = allRows.map((row, i) => {
+    const t = row.team;
+    const rec = t.record?.overall;
+    const recordStr = rec ? `${rec.wins}-${rec.losses}${rec.ties ? '-' + rec.ties : ''}` : '—';
+    const pf = rec ? rec.pointsFor.toFixed(1) : '0.0';
+    const playoffPct = t.currentSimulationResults?.playoffPct;
+    const pctStr = playoffPct != null ? Math.round(playoffPct * 100) + '%' : '—';
+    const owner = memberName(row.data, t.primaryOwner);
+    return `
+      <tr class="row-${row.color}">
+        <td><span class="rank-badge">${i + 1}</span></td>
+        <td><span class="team-name">${t.name}</span><span class="team-owner">${owner}</span></td>
+        <td class="num">${recordStr}</td>
+        <td class="num">${pf}</td>
+        <td class="num">
+          ${pctStr}
+          <div class="pct-bar"><div class="pct-fill" style="width:${playoffPct != null ? Math.round(playoffPct * 100) : 0}%"></div></div>
+        </td>
+      </tr>`;
+  }).join('');
+
+  document.getElementById('standingsBody').innerHTML = rows ||
+    '<tr><td colspan="5" class="empty-note">No leagues loaded yet.</td></tr>';
+}
+
+async function loadDashboard() {
+  try {
+    const res = await fetch(DASHBOARD_API_URL, { cache: 'no-store' });
+    const payload = await res.json();
+    leagues = payload.leagues || [];
+    renderAll();
+    const el = document.getElementById('lastUpdated');
+    el.textContent = payload.updatedAt
+      ? 'Last updated ' + new Date(payload.updatedAt).toLocaleTimeString()
+      : '';
+  } catch (err) {
+    console.error('Failed to load dashboard data:', err);
+    document.getElementById('lastUpdated').textContent = 'Could not load data — check back shortly.';
+  }
+}
+
+// Fetch immediately on page load / reload.
+loadDashboard();
+
+// Then re-sync every 5 minutes, aligned to the clock (:00, :05, :10, ...)
+// so the frontend refresh lines up with the backend's own 5-min cache cycle.
+function scheduleAlignedRefresh() {
+  const now = new Date();
+  const msPastFive = ((now.getMinutes() % 5) * 60 + now.getSeconds()) * 1000 + now.getMilliseconds();
+  const msToNextMark = (5 * 60 * 1000) - msPastFive;
+  setTimeout(() => {
+    loadDashboard();
+    setInterval(loadDashboard, 5 * 60 * 1000);
+  }, msToNextMark);
+}
+scheduleAlignedRefresh();
+</script>
+</body>
+</html>
