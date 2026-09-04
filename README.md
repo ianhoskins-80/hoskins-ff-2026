@@ -6,6 +6,8 @@ A live scoreboard for fantasy football leagues. A scheduled backend job polls ES
 
 The page auto-refreshes on load and every 5 minutes thereafter, aligned to the backend's refresh schedule (:00, :05, :10, ...).
 
+> Setting this up from scratch (new GCP/Firebase projects)? See [SETUP.md](SETUP.md).
+
 ## Architecture
 
 Two separate Google Cloud / Firebase projects are involved by design — the frontend calls the backend by full URL, so they don't need to share a project.
