@@ -94,7 +94,7 @@
   /* ---- combined standings table ---- */
   table { width: 100%; border-collapse: collapse; font-size: 14px; border-radius: 6px; overflow: hidden; }
   th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-dim); padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--card); }
-  th.num, td.num { text-align: right; }
+  th.num, td.num, th.rank-col, td.rank-col { text-align: center; }
   td { padding: 10px 12px; border-bottom: 1px solid var(--line); }
 
   tr.row-red { background: var(--red-tint); border-left: 3px solid var(--red); }
@@ -107,11 +107,6 @@
   .rank-badge { display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center; font-weight: 700; border-radius: 50%; font-size: 12px; color: #fff; }
   tr.row-red .rank-badge { background: var(--red); }
   tr.row-blue .rank-badge { background: var(--blue); }
-
-  .pct-bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 4px; width: 90px; }
-  .pct-fill { height: 100%; }
-  tr.row-red .pct-fill { background: var(--red); }
-  tr.row-blue .pct-fill { background: var(--blue); }
 
   .empty-note { padding: 12px 4px; font-size: 12px; color: var(--text-dim); }
 
@@ -180,10 +175,11 @@
   <table>
     <thead>
       <tr>
-        <th></th>
+        <th class="rank-col"></th>
         <th>Team</th>
         <th class="num">Record</th>
-        <th class="num">Pts For</th>
+        <th class="num">Win%</th>
+        <th class="num">Total Points</th>
         <th class="num">Playoff Odds</th>
       </tr>
     </thead>
@@ -217,7 +213,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v2.0';
+const BUILD_VERSION = 'v2.1';
 document.getElementById('buildFooter').textContent = `Build ${BUILD_VERSION}`;
 
 let leagues = []; // populated from the API: [{ color, data }]
@@ -373,25 +369,25 @@ function renderAll() {
     const t = row.team;
     const rec = t.record?.overall;
     const recordStr = rec ? `${rec.wins}-${rec.losses}${rec.ties ? '-' + rec.ties : ''}` : '—';
+    const gamesPlayed = rec ? rec.wins + rec.losses + (rec.ties || 0) : 0;
+    const winPct = gamesPlayed > 0 ? Math.round(((rec.wins + (rec.ties || 0) * 0.5) / gamesPlayed) * 100) + '%' : '—';
     const pf = rec ? rec.pointsFor.toFixed(1) : '0.0';
     const playoffPct = t.currentSimulationResults?.playoffPct;
     const pctStr = playoffPct != null ? Math.round(playoffPct * 100) + '%' : '—';
     const owner = memberName(row.data, t.primaryOwner);
     return `
       <tr class="row-${row.color}">
-        <td><span class="rank-badge">${i + 1}</span></td>
+        <td class="rank-col"><span class="rank-badge">${i + 1}</span></td>
         <td><span class="team-name">${escapeHtml(t.name)}</span><span class="team-owner">${escapeHtml(owner)}</span></td>
         <td class="num">${recordStr}</td>
+        <td class="num">${winPct}</td>
         <td class="num">${pf}</td>
-        <td class="num">
-          ${pctStr}
-          <div class="pct-bar"><div class="pct-fill" style="width:${playoffPct != null ? Math.round(playoffPct * 100) : 0}%"></div></div>
-        </td>
+        <td class="num">${pctStr}</td>
       </tr>`;
   }).join('');
 
   document.getElementById('standingsBody').innerHTML = rows ||
-    '<tr><td colspan="5" class="empty-note">No leagues loaded yet.</td></tr>';
+    '<tr><td colspan="6" class="empty-note">No leagues loaded yet.</td></tr>';
 }
 
 // ---------------------------------------------------------------------
