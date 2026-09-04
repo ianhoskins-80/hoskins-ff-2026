@@ -72,7 +72,14 @@ The frontend is a single static `index.html` with no build step. It:
 - Fetches `DASHBOARD_API_URL` (the `getDashboard` endpoint above) on page load
 - Re-fetches every 5 minutes while the tab stays open, aligned to the backend's refresh cycle
 - Renders themed matchup cards per league and a combined, points-sorted standings table
-- Links each league name and team name out to that team/league's ESPN page
+- Highlights the team currently leading a live matchup with a subtle background tint (matching the league's red/blue) behind its name and score
+- A small helmet icon next to each team name links out to that team's ESPN page; clicking the team name itself opens that team's roster (see below)
+
+### Roster lightbox
+
+Clicking a team name in a matchup card opens a modal listing that team's roster for the current week — position, player, NFL team, projected points, and actual points, grouped into Starters / Bench / IR. A player flagged by ESPN as questionable, out, etc. gets a small abbreviated badge next to their name (Q, D, O, IR, DTD, SUSP, P, INACT). The modal is rebuilt from the in-memory `leagues` data at click time (not baked into each card's HTML), is keyboard/touch dismissible (✕ button, backdrop click, or Escape), and renders as a full-width bottom sheet on narrow viewports.
+
+Player position, roster slot, and NFL team are resolved from ESPN's undocumented-but-stable numeric ID tables (`POSITION_NAMES`, `SLOT_NAMES`, `PRO_TEAM_ABBR` near the top of the `<script>` block). If ESPN adds a new slot type, the lookup falls back to `—` rather than erroring — extend the relevant map if a new ID shows up.
 
 ### Matchup card metrics
 
@@ -80,7 +87,7 @@ The frontend is a single static `index.html` with no build step. It:
 |---|---|
 | Projected | Direct from ESPN's `totalProjectedPoints`. Fully working. |
 | Currently Playing / Yet to Play | Computed client-side from each team's starting lineup (`rosterForCurrentScoringPeriod.entries`, excluding bench/IR). A starter counts as "playing" if ESPN has posted an actual (non-projected) stats entry (`statSourceId === 0`). This is an inferred proxy, not an explicit ESPN field — worth re-validating against real in-season data. |
-| Mins Left | **Not implemented.** Always shows `—`. ESPN's live game-clock data isn't currently pulled or parsed; needs either the `mLiveScoring` view or a separate live-scores data source. |
+| Mins Left | **Not implemented.** Hidden from the UI for now (the metric row is still in the DOM, just marked `hidden`, so it's a one-line change to bring back). ESPN's live game-clock data isn't currently pulled or parsed; needs either the `mLiveScoring` view or a separate live-scores data source. |
 
 ### Versioning
 
