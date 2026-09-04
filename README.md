@@ -177,3 +177,7 @@ gcloud projects get-iam-policy fantasy2026 --flatten="bindings[].members" --filt
 
 - Both Cloud Functions run on **Node 22** (Node 20 is EOL Oct 30, 2026).
 - Both leagues must be manually set to public in ESPN's league settings before their ID can be added to `LEAGUES`.
+
+## License
+
+[MIT](LICENSE)
