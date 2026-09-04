@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hoskins Fantastical Family Football</title>
 <style>
   :root {
@@ -18,6 +19,8 @@
     --blue: #3f7fd6;
     --blue-tint: rgba(63, 127, 214, 0.16);
     --blue-tint-strong: rgba(63, 127, 214, 0.28);
+
+    --warn: #d6a13f;
   }
   * { box-sizing: border-box; }
   body {
@@ -65,20 +68,28 @@
   .matchup-card { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; }
   .team-block { padding: 4px 0; }
   .team-top { display: flex; justify-content: space-between; align-items: baseline; }
-  .team-top a.team-name { font-weight: 600; font-size: 13px; color: var(--text); text-decoration: none; }
-  .team-top a.team-name:hover { text-decoration: underline; }
-  .team-top .score { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--text-dim); }
+  .team-name-wrap { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .team-espn-link { flex-shrink: 0; display: inline-flex; color: var(--text-dim); }
+  .team-espn-link:hover { color: var(--text); }
+  .team-espn-link svg { width: 13px; height: 13px; display: block; }
+  button.team-name.roster-trigger {
+    background: none; border: none; padding: 0; margin: 0; font: inherit;
+    font-weight: 600; font-size: 13px; color: var(--text); cursor: pointer;
+    text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  button.team-name.roster-trigger:hover { text-decoration: underline; }
+  .team-top .score { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--text-dim); flex-shrink: 0; padding-left: 8px; }
+  .team-block.winning .team-top { border-radius: 4px; padding: 3px 6px; margin: -3px -6px 0; }
   .team-block.winning .score { font-weight: 700; }
+  .matchup-block.red .team-block.winning .team-top { background: var(--red-tint); }
   .matchup-block.red .team-block.winning .score { color: var(--red); }
+  .matchup-block.blue .team-block.winning .team-top { background: var(--blue-tint); }
   .matchup-block.blue .team-block.winning .score { color: var(--blue); }
-  .team-block.predicted a.team-name::after { content: " ▸"; }
-  .matchup-block.red .team-block.predicted a.team-name::after { color: var(--red); }
-  .matchup-block.blue .team-block.predicted a.team-name::after { color: var(--blue); }
   .team-metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 10px; margin-top: 5px; }
   .metric { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); }
+  .metric[hidden] { display: none; }
   .metric .metric-value { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
   .vs-divider { text-align: center; font-size: 10px; color: var(--text-dim); letter-spacing: 1px; padding: 4px 0; }
-  .pred-note { font-size: 10px; color: var(--text-dim); text-align: center; padding-top: 6px; border-top: 1px solid var(--line); margin-top: 8px; }
 
   /* ---- combined standings table ---- */
   table { width: 100%; border-collapse: collapse; font-size: 14px; border-radius: 6px; overflow: hidden; }
@@ -105,6 +116,56 @@
   .empty-note { padding: 12px 4px; font-size: 12px; color: var(--text-dim); }
 
   .build-footer { text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--line); }
+
+  /* ---- roster lightbox ---- */
+  .roster-modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px; z-index: 1000;
+  }
+  .roster-modal-backdrop[hidden] { display: none; }
+  .roster-modal {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    width: 100%; max-width: 480px; max-height: 85vh;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .roster-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid var(--line); border-top: 3px solid transparent;
+  }
+  .roster-modal.red .roster-modal-header { border-top-color: var(--red); }
+  .roster-modal.blue .roster-modal-header { border-top-color: var(--blue); }
+  .roster-modal-header h3 { margin: 0; font-size: 15px; }
+  .roster-modal-week { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .roster-modal-close {
+    background: none; border: none; color: var(--text-dim); font-size: 24px;
+    line-height: 1; cursor: pointer; padding: 4px 8px; flex-shrink: 0; margin-left: 12px;
+  }
+  .roster-modal-close:hover { color: var(--text); }
+  .roster-modal-body { overflow-y: auto; }
+  .roster-modal-body table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .roster-modal-body th {
+    position: sticky; top: 0; background: var(--card); font-size: 10px;
+    text-transform: uppercase; color: var(--text-dim); padding: 8px 12px;
+    text-align: left; border-bottom: 1px solid var(--line);
+  }
+  .roster-modal-body td { padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 12px; }
+  .roster-modal-body th.num, .roster-modal-body td.num { text-align: right; }
+  .roster-modal-body td.pos-cell { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .injury-badge {
+    display: inline-block; font-size: 9px; font-weight: 700; color: var(--warn);
+    border: 1px solid var(--warn); border-radius: 3px; padding: 0 3px; margin-left: 4px;
+    vertical-align: middle; line-height: 1.4;
+  }
+  .roster-group-row td {
+    padding: 10px 12px 4px; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.6px; color: var(--text-dim); border-bottom: none;
+  }
+
+  @media (max-width: 520px) {
+    .roster-modal-backdrop { align-items: flex-end; padding: 0; }
+    .roster-modal { max-width: none; max-height: 80vh; border-radius: 14px 14px 0 0; }
+  }
 </style>
 </head>
 <body>
@@ -132,6 +193,19 @@
   <div class="build-footer" id="buildFooter"></div>
 </div>
 
+<div class="roster-modal-backdrop" id="rosterModalBackdrop" hidden>
+  <div class="roster-modal" id="rosterModal" role="dialog" aria-modal="true" aria-labelledby="rosterModalTitle">
+    <div class="roster-modal-header">
+      <div>
+        <h3 id="rosterModalTitle"></h3>
+        <div class="roster-modal-week" id="rosterModalWeek"></div>
+      </div>
+      <button type="button" class="roster-modal-close" id="rosterModalClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="roster-modal-body" id="rosterModalBody"></div>
+  </div>
+</div>
+
 <script>
 // ---------------------------------------------------------------------
 // Fill this in once the Cloud Function is deployed (see DEPLOYMENT.md).
@@ -141,9 +215,9 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 
 // ---------------------------------------------------------------------
 // BUILD VERSION
-// Bump this on every deploy (see "Versioning" in PROJECT_DOCUMENTATION.md).
+// Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v1.0';
+const BUILD_VERSION = 'v2.0';
 document.getElementById('buildFooter').textContent = `Build ${BUILD_VERSION}`;
 
 let leagues = []; // populated from the API: [{ color, data }]
@@ -160,6 +234,40 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+// Small original glyph (not the noun-project icon, to avoid licensing/attribution
+// issues) -- links out to the team's ESPN page, kept separate from the team-name
+// button below so the two "click a team" actions (roster popup vs. ESPN link)
+// don't collide on the same element.
+const HELMET_SVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path d="M4 14.5C4 8.7 8.03 4 13 4c4.42 0 8 3.36 8 7.5V15a2 2 0 0 1-2 2h-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M4 14.5V17a2 2 0 0 0 2 2h1.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M7.5 19c1.3 1.1 2.9 1.7 4.6 1.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M12 12.2c2-.5 3.8 0 5 1.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M12.1 20.6c1.7-1.8 2.8-3.6 3-5.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+</svg>`;
+
+// ESPN's numeric IDs for player position, roster slot, and NFL team --
+// not documented anywhere official, but stable and widely relied on.
+const POSITION_NAMES = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'D/ST' };
+const SLOT_NAMES = { 0: 'QB', 2: 'RB', 3: 'RB/WR', 4: 'WR', 5: 'WR/TE', 6: 'TE', 7: 'OP', 16: 'D/ST', 17: 'K', 19: 'HC', 20: 'BE', 21: 'IR', 23: 'FLEX' };
+const PRO_TEAM_ABBR = {
+  0: 'FA', 1: 'ATL', 2: 'BUF', 3: 'CHI', 4: 'CIN', 5: 'CLE', 6: 'DAL', 7: 'DEN',
+  8: 'DET', 9: 'GB', 10: 'TEN', 11: 'IND', 12: 'KC', 13: 'LV', 14: 'LAR', 15: 'MIA',
+  16: 'MIN', 17: 'NE', 18: 'NO', 19: 'NYG', 20: 'NYJ', 21: 'PHI', 22: 'ARI', 23: 'PIT',
+  24: 'LAC', 25: 'SF', 26: 'SEA', 27: 'TB', 28: 'WSH', 29: 'CAR', 30: 'JAX', 33: 'BAL', 34: 'HOU',
+};
+// ACTIVE (healthy) and unset intentionally have no abbreviation -- nothing to flag.
+const INJURY_ABBR = {
+  QUESTIONABLE: 'Q',
+  DOUBTFUL: 'D',
+  OUT: 'O',
+  INJURY_RESERVE: 'IR',
+  DAY_TO_DAY: 'DTD',
+  SUSPENSION: 'SUSP',
+  PROBABLE: 'P',
+  DEACTIVATED: 'INACT',
+};
+
 function memberName(data, ownerId) {
   const m = (data.members || []).find(mm => mm.id === ownerId);
   return m ? (m.firstName + ' ' + m.lastName) : '';
@@ -175,14 +283,15 @@ function starterHasActualStats(entry) {
 
 function computePlayCounts(sideData) {
   const entries = sideData?.rosterForCurrentScoringPeriod?.entries || [];
-  // lineupSlotId 20 = bench, 21 = IR -- exclude those, only count starters
-  const starters = entries.filter(e => e.lineupSlotId !== 20 && e.lineupSlotId !== 21);
+  // lineupSlotId 20 = bench, 21 = IR -- exclude those, only count starters.
+  // Guard against a null entry (e.g. an unfilled roster slot) rather than erroring.
+  const starters = entries.filter(e => e && e.lineupSlotId !== 20 && e.lineupSlotId !== 21);
   const playing = starters.filter(starterHasActualStats).length;
   const yetToPlay = starters.length - playing;
   return { playing, yetToPlay };
 }
 
-function renderMatchupsBlock(league) {
+function renderMatchupsBlock(league, leagueIdx) {
   const { data, color } = league;
   const teams = data.teams || [];
   const schedule = data.schedule || [];
@@ -194,21 +303,24 @@ function renderMatchupsBlock(league) {
   const teamById = id => teams.find(t => t.id === id);
   const teamUrl = teamId => `https://fantasy.espn.com/football/team?leagueId=${data.id}&teamId=${teamId}`;
   const anyScores = weekGames.some(g => (g.home?.totalPoints || 0) > 0 || (g.away?.totalPoints || 0) > 0);
-  const anyProj = weekGames.some(g => (g.home?.totalProjectedPoints || 0) > 0 || (g.away?.totalProjectedPoints || 0) > 0);
 
-  const renderTeamBlock = (side, teamId, points, proj, isWinning, isPredicted) => {
+  const renderTeamBlock = (side, sideName, matchupId, teamId, points, proj, isWinning) => {
     const team = teamById(teamId);
     const counts = computePlayCounts(side);
+    const name = escapeHtml(team ? team.name : 'TBD');
     return `
-      <div class="team-block ${isWinning ? 'winning' : ''} ${isPredicted ? 'predicted' : ''}">
+      <div class="team-block ${isWinning ? 'winning' : ''}">
         <div class="team-top">
-          <a class="team-name" href="${teamUrl(teamId)}" target="_blank" rel="noopener noreferrer">${escapeHtml(team ? team.name : 'TBD')}</a>
+          <span class="team-name-wrap">
+            <a class="team-espn-link" href="${teamUrl(teamId)}" target="_blank" rel="noopener noreferrer" title="View ${name} on ESPN" aria-label="View ${name} on ESPN">${HELMET_SVG}</a>
+            <button type="button" class="team-name roster-trigger" data-league-idx="${leagueIdx}" data-matchup-id="${escapeHtml(matchupId)}" data-side="${sideName}" title="View ${name}'s roster">${name}</button>
+          </span>
           <span class="score">${points.toFixed(1)}</span>
         </div>
         <div class="team-metrics">
           <div class="metric"><span class="metric-label">Currently Playing</span><span class="metric-value">${counts.playing}</span></div>
           <div class="metric"><span class="metric-label">Yet to Play</span><span class="metric-value">${counts.yetToPlay}</span></div>
-          <div class="metric"><span class="metric-label">Mins Left</span><span class="metric-value">—</span></div>
+          <div class="metric" hidden><span class="metric-label">Mins Left</span><span class="metric-value">—</span></div>
           <div class="metric"><span class="metric-label">Projected</span><span class="metric-value">${proj.toFixed(1)}</span></div>
         </div>
       </div>`;
@@ -219,21 +331,17 @@ function renderMatchupsBlock(league) {
     const ap = g.away?.totalPoints ?? 0;
     const hProj = g.home?.totalProjectedPoints ?? 0;
     const aProj = g.away?.totalProjectedPoints ?? 0;
-    const hasProj = hProj > 0 || aProj > 0;
     const homeWinning = anyScores && hp > ap;
     const awayWinning = anyScores && ap > hp;
-    const homePredicted = !anyScores && hasProj && hProj > aProj;
-    const awayPredicted = !anyScores && hasProj && aProj > hProj;
     return `
       <div class="matchup-card">
-        ${renderTeamBlock(g.away, g.away?.teamId, ap, aProj, awayWinning, awayPredicted)}
+        ${renderTeamBlock(g.away, 'away', g.id, g.away?.teamId, ap, aProj, awayWinning)}
         <div class="vs-divider">at</div>
-        ${renderTeamBlock(g.home, g.home?.teamId, hp, hProj, homeWinning, homePredicted)}
-        ${!anyScores && hasProj ? '<div class="pred-note">▸ predicted winner, based on weekly projections</div>' : ''}
+        ${renderTeamBlock(g.home, 'home', g.id, g.home?.teamId, hp, hProj, homeWinning)}
       </div>`;
   }).join('');
 
-  const status = anyScores ? '' : (anyProj ? ' — projected' : ' — not yet started');
+  const status = anyScores ? '' : ' — not yet started';
 
   return `
     <div class="matchup-block ${color}">
@@ -246,7 +354,7 @@ function renderMatchupsBlock(league) {
 }
 
 function renderAll() {
-  document.getElementById('matchupsContainer').innerHTML = leagues.map(renderMatchupsBlock).join('');
+  document.getElementById('matchupsContainer').innerHTML = leagues.map((league, i) => renderMatchupsBlock(league, i)).join('');
 
   let allRows = [];
   leagues.forEach(league => {
@@ -285,6 +393,111 @@ function renderAll() {
   document.getElementById('standingsBody').innerHTML = rows ||
     '<tr><td colspan="5" class="empty-note">No leagues loaded yet.</td></tr>';
 }
+
+// ---------------------------------------------------------------------
+// Roster lightbox -- opened by clicking a team name in a matchup card.
+// Rebuilt from `leagues` at click time (rather than baked into the
+// card's HTML) so it always reflects the latest fetched data.
+// ---------------------------------------------------------------------
+const rosterModalBackdrop = document.getElementById('rosterModalBackdrop');
+const rosterModal = document.getElementById('rosterModal');
+
+function playerStatsFor(player, scoringPeriodId) {
+  const stats = player.stats || [];
+  const actual = stats.find(s => s.scoringPeriodId === scoringPeriodId && s.statSourceId === 0);
+  const projected = stats.find(s => s.scoringPeriodId === scoringPeriodId && s.statSourceId === 1);
+  return {
+    actual: actual ? actual.appliedTotal.toFixed(1) : '—',
+    projected: projected ? projected.appliedTotal.toFixed(1) : '—',
+  };
+}
+
+function rosterRow(entry, week) {
+  // entry.playerPoolEntry (or the player within it) can be missing for an
+  // unfilled roster slot -- fall back to placeholder text rather than erroring.
+  const player = entry?.playerPoolEntry?.player || {};
+  const pos = POSITION_NAMES[player.defaultPositionId] || SLOT_NAMES[entry?.lineupSlotId] || '—';
+  const nflTeam = PRO_TEAM_ABBR[player.proTeamId] ?? '—';
+  const { projected, actual } = playerStatsFor(player, week);
+  const injuryAbbr = INJURY_ABBR[player.injuryStatus];
+  const injuryBadge = injuryAbbr ? ` <span class="injury-badge" title="${escapeHtml(player.injuryStatus)}">${injuryAbbr}</span>` : '';
+  return `
+    <tr>
+      <td class="pos-cell">${escapeHtml(pos)}</td>
+      <td>${escapeHtml(player.fullName || 'Empty')}${injuryBadge}</td>
+      <td>${escapeHtml(nflTeam)}</td>
+      <td class="num">${projected}</td>
+      <td class="num">${actual}</td>
+    </tr>`;
+}
+
+function renderRosterBody(sideData, week) {
+  const entries = (sideData?.rosterForCurrentScoringPeriod?.entries || []).filter(Boolean);
+  const starters = entries.filter(e => e.lineupSlotId !== 20 && e.lineupSlotId !== 21)
+    .sort((a, b) => a.lineupSlotId - b.lineupSlotId);
+  const bench = entries.filter(e => e.lineupSlotId === 20);
+  const ir = entries.filter(e => e.lineupSlotId === 21);
+
+  const section = (label, list) => list.length
+    ? `<tr class="roster-group-row"><td colspan="5">${label}</td></tr>${list.map(e => rosterRow(e, week)).join('')}`
+    : '';
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>Pos</th>
+          <th>Player</th>
+          <th>Team</th>
+          <th class="num">Proj</th>
+          <th class="num">Actual</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${section('Starters', starters)}
+        ${section('Bench', bench)}
+        ${section('IR', ir)}
+      </tbody>
+    </table>`;
+}
+
+function openRosterModal({ leagueIdx, matchupId, side }) {
+  const league = leagues[Number(leagueIdx)];
+  if (!league) return;
+  const game = (league.data.schedule || []).find(g => String(g.id) === String(matchupId));
+  if (!game) return;
+  const sideData = game[side];
+  const team = (league.data.teams || []).find(t => t.id === sideData?.teamId);
+  const week = league.data.status?.currentMatchupPeriod ?? 1;
+
+  document.getElementById('rosterModalTitle').textContent = team ? team.name : 'Roster';
+  document.getElementById('rosterModalWeek').textContent = `Week ${week}`;
+  document.getElementById('rosterModalBody').innerHTML = renderRosterBody(sideData, week);
+  rosterModal.classList.remove('red', 'blue');
+  rosterModal.classList.add(league.color);
+
+  rosterModalBackdrop.hidden = false;
+  document.body.style.overflow = 'hidden';
+  document.getElementById('rosterModalClose').focus();
+}
+
+function closeRosterModal() {
+  rosterModalBackdrop.hidden = true;
+  document.body.style.overflow = '';
+}
+
+document.addEventListener('click', (e) => {
+  const trigger = e.target.closest('.roster-trigger');
+  if (trigger) {
+    openRosterModal(trigger.dataset);
+    return;
+  }
+  if (e.target === rosterModalBackdrop) closeRosterModal();
+});
+document.getElementById('rosterModalClose').addEventListener('click', closeRosterModal);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !rosterModalBackdrop.hidden) closeRosterModal();
+});
 
 async function loadDashboard() {
   try {
