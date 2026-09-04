@@ -103,10 +103,10 @@ For a past week, this shows a caveat note: `rosterForCurrentScoringPeriod` on a 
 
 ### Standings trend chart
 
-Below the standings table, a hand-rolled inline SVG line chart (no charting library — this project has no external JS dependencies) plots each team's combined rank across the season, built from `payload.standingsHistory`: X-axis is week, Y-axis is rank (inverted, rank 1 at the top), one line per team.
+Below the standings table, a hand-rolled inline SVG line chart (no charting library — this project has no external JS dependencies) plots each team's combined rank across the season, built from `payload.standingsHistory`: X-axis is week (labeled "Week"), Y-axis is rank (labeled "Rank (1 = best)", inverted so rank 1 is at the top), one line per team.
 
 - **Color:** each league gets a base hue (red/blue), with lightness spread across that league's teams (`teamLineColor()`), so the palette scales automatically as teams/leagues are added instead of a hardcoded N-color list.
-- **Highlighting:** single-select — clicking a legend chip, a line, or a specific point highlights that team (dims everything else, brings it to the front, thickens the line) so one team's trend is readable even with 16+ overlapping lines. Clicking the same thing again, or "Show all," resets. This is click/tap-driven rather than hover-only, since hover doesn't exist on touch.
+- **Filtering:** multi-select (`selectedChartTeamIds`, a `Set`) — clicking a legend chip, a line, or a specific point toggles that team into or out of the shown set. With nothing selected, all teams show (the default). Once one or more are selected, every *other* team's line and points are fully hidden (not just dimmed), so comparing a handful of specific teams out of 16+ stays legible. "Show all" clears the set. This is click/tap-driven rather than hover-only, since hover doesn't exist on touch.
 - **Per-point detail:** each point carries a native SVG `<title>` (team, week, rank, points) shown on hover — no custom tooltip UI needed.
 - **Empty state:** shows a placeholder message until at least one week has completed.
 
