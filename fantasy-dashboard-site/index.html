@@ -137,6 +137,18 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 
 let leagues = []; // populated from the API: [{ color, data }]
 
+// ESPN-sourced strings (team names, league names, owner names) are
+// user-editable in ESPN's UI and get rendered via innerHTML below --
+// escape them so a malicious name can't inject markup/script.
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function memberName(data, ownerId) {
   const m = (data.members || []).find(mm => mm.id === ownerId);
   return m ? (m.firstName + ' ' + m.lastName) : '';
@@ -179,7 +191,7 @@ function renderMatchupsBlock(league) {
     return `
       <div class="team-block ${isWinning ? 'winning' : ''} ${isPredicted ? 'predicted' : ''}">
         <div class="team-top">
-          <a class="team-name" href="${teamUrl(teamId)}" target="_blank" rel="noopener noreferrer">${team ? team.name : 'TBD'}</a>
+          <a class="team-name" href="${teamUrl(teamId)}" target="_blank" rel="noopener noreferrer">${escapeHtml(team ? team.name : 'TBD')}</a>
           <span class="score">${points.toFixed(1)}</span>
         </div>
         <div class="team-metrics">
@@ -215,7 +227,7 @@ function renderMatchupsBlock(league) {
   return `
     <div class="matchup-block ${color}">
       <div class="matchup-block-head">
-        <a href="${leagueUrl}" target="_blank" rel="noopener noreferrer">${data.settings?.name || 'League'}</a>
+        <a href="${leagueUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(data.settings?.name || 'League')}</a>
         <span class="week-note">Week ${week}${status}</span>
       </div>
       <div class="matchup-grid">${cards}</div>
@@ -249,7 +261,7 @@ function renderAll() {
     return `
       <tr class="row-${row.color}">
         <td><span class="rank-badge">${i + 1}</span></td>
-        <td><span class="team-name">${t.name}</span><span class="team-owner">${owner}</span></td>
+        <td><span class="team-name">${escapeHtml(t.name)}</span><span class="team-owner">${escapeHtml(owner)}</span></td>
         <td class="num">${recordStr}</td>
         <td class="num">${pf}</td>
         <td class="num">
