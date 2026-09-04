@@ -103,6 +103,8 @@
   tr.row-blue .pct-fill { background: var(--blue); }
 
   .empty-note { padding: 12px 4px; font-size: 12px; color: var(--text-dim); }
+
+  .build-footer { text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--line); }
 </style>
 </head>
 <body>
@@ -126,6 +128,8 @@
     </thead>
     <tbody id="standingsBody"></tbody>
   </table>
+
+  <div class="build-footer" id="buildFooter"></div>
 </div>
 
 <script>
@@ -134,6 +138,13 @@
 // Example: https://us-central1-my-project.cloudfunctions.net/getDashboard
 // ---------------------------------------------------------------------
 const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/getDashboard';
+
+// ---------------------------------------------------------------------
+// BUILD VERSION
+// Bump this on every deploy (see "Versioning" in PROJECT_DOCUMENTATION.md).
+// ---------------------------------------------------------------------
+const BUILD_VERSION = 'v1.0';
+document.getElementById('buildFooter').textContent = `Build ${BUILD_VERSION}`;
 
 let leagues = []; // populated from the API: [{ color, data }]
 

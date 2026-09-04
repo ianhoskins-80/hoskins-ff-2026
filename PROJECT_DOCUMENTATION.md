@@ -88,6 +88,18 @@ cd /Users/ianhoskins/hoskins-ff-2026
 firebase deploy --only hosting
 ```
 
+### Versioning
+
+The dashboard displays its build number in a small footer at the bottom of the page ("Build vX.Y"), sourced from the `BUILD_VERSION` constant near the top of the `<script>` block in `fantasy-dashboard-site/index.html`.
+
+**Scheme:** `vMAJOR.MINOR`
+- Bump **MINOR** for routine updates — bug fixes, small UI tweaks, metric changes (e.g. `v1.0` → `v1.1`)
+- Bump **MAJOR** for significant changes — new features, redesigns, or backend contract changes that affect the frontend (e.g. `v1.5` → `v2.0`)
+
+**On every deploy that changes `index.html`:** bump `BUILD_VERSION` in the script before running `firebase deploy --only hosting`, so the footer always reflects what's actually live.
+
+Current version: **v1.0** (first versioned deploy — includes the stored-XSS fix for ESPN-sourced team/league/owner names).
+
 ---
 
 ## League Configuration
