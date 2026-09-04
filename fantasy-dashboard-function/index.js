@@ -31,6 +31,61 @@ async function fetchLeague(leagueId) {
   return res.json();
 }
 
+// Combined cross-league rank, sorted by season pointsFor -- same logic the
+// frontend uses for the "Combined Standings" table, duplicated here so a
+// weekly snapshot can be computed server-side. Keep these two in sync if
+// the ranking rule ever changes.
+function computeCombinedStandings(results) {
+  const rows = [];
+  results.forEach(({ color, data }) => {
+    (data.teams || []).forEach(team => rows.push({ team, color }));
+  });
+
+  rows.sort((a, b) => {
+    const apf = a.team.record?.overall?.pointsFor ?? 0;
+    const bpf = b.team.record?.overall?.pointsFor ?? 0;
+    if (bpf !== apf) return bpf - apf;
+    return (a.team.currentProjectedRank ?? 99) - (b.team.currentProjectedRank ?? 99);
+  });
+
+  return rows.map((row, i) => ({
+    teamId: row.team.id,
+    teamName: row.team.name,
+    leagueColor: row.color,
+    pointsFor: row.team.record?.overall?.pointsFor ?? 0,
+    rank: i + 1,
+  }));
+}
+
+// Snapshots the combined standings for whichever week just completed, keyed
+// by week number so re-running this on every 5-min refresh is naturally
+// idempotent (it just overwrites that week's doc with the same, or a
+// slightly more final, result -- a completed week's pointsFor don't change
+// again once the next week has started). Detects "week complete" off
+// ESPN's own currentMatchupPeriod rather than a calendar day, since that's
+// the field this app already trusts everywhere else and it isn't thrown
+// off by holiday schedules, bye weeks, or the Thursday-only postseason.
+async function snapshotStandingsIfWeekComplete(results) {
+  const currentWeek = results[0]?.data?.status?.currentMatchupPeriod ?? 1;
+  const completedWeek = currentWeek - 1;
+  if (completedWeek < 1) return;
+
+  const standings = computeCombinedStandings(results);
+  if (!standings.length) return;
+
+  try {
+    await firestore.collection('standings-history').doc(String(completedWeek)).set({
+      week: completedWeek,
+      snapshotAt: new Date().toISOString(),
+      standings,
+    });
+  } catch (err) {
+    // Non-fatal -- don't let a history-snapshot failure break the main
+    // dashboard refresh.
+    console.error('Failed to snapshot standings history:', err.message);
+  }
+}
+
 async function refreshAllLeagues() {
   const results = [];
   for (const league of LEAGUES) {
@@ -48,6 +103,8 @@ async function refreshAllLeagues() {
     leagues: results,
     updatedAt: new Date().toISOString(),
   });
+
+  await snapshotStandingsIfWeekComplete(results);
 
   return results;
 }
@@ -84,13 +141,16 @@ functions.http('getDashboard', async (req, res) => {
   }
 
   try {
+    const historySnapshot = await firestore.collection('standings-history').orderBy('week').get();
+    const standingsHistory = historySnapshot.docs.map(d => d.data());
+
     const doc = await firestore.collection('fantasy-dashboard').doc('latest').get();
     if (!doc.exists) {
       const results = await refreshAllLeagues();
-      res.status(200).json({ leagues: results, updatedAt: new Date().toISOString() });
+      res.status(200).json({ leagues: results, updatedAt: new Date().toISOString(), standingsHistory });
       return;
     }
-    res.status(200).json(doc.data());
+    res.status(200).json({ ...doc.data(), standingsHistory });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

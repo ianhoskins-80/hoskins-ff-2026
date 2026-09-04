@@ -40,7 +40,7 @@ fantasy-dashboard-site/       Frontend: Firebase Hosting
 - Triggered by Cloud Scheduler; not meant to be called directly
 
 **`getDashboard`** — public
-- Returns the cached Firestore document to the frontend
+- Returns the cached Firestore document (`leagues`, `updatedAt`) plus `standingsHistory` (every completed week's snapshot, see Firestore below) to the frontend
 - URL: `https://us-central1-fantasy2026.cloudfunctions.net/getDashboard`
 - Falls back to a live ESPN fetch if no cache exists yet (first-run only)
 
@@ -60,11 +60,18 @@ gcloud scheduler jobs run refresh-fantasy-leagues --location=us-central1 --proje
 
 ### Firestore
 
-Single document: `fantasy-dashboard/latest`, containing:
+**`fantasy-dashboard/latest`** — single document, overwritten every 5 minutes:
 - `leagues` — array of `{ color, data }`, where `data` is the **full, untrimmed** ESPN league response
 - `updatedAt` — ISO timestamp
 
 The full ESPN response is stored (not a trimmed subset) because the frontend's "Currently Playing" / "Yet to Play" metrics depend on per-player roster data only present there. Don't trim this payload without checking whether the frontend still needs those fields.
+
+**`standings-history/{week}`** — one doc per completed NFL week, written by `refreshLeagues`:
+- `week` — the week number (matches ESPN's `matchupPeriodId`)
+- `snapshotAt` — ISO timestamp of the write
+- `standings` — combined cross-league rank for that week: `[{ teamId, teamName, leagueColor, pointsFor, rank }]`
+
+Written by comparing ESPN's `status.currentMatchupPeriod` on each fetch, not a calendar day — once it advances past `N`, week `N`'s season-to-date totals are final, so `refreshLeagues` (over)writes `standings-history/N` on every run until the period advances again. This makes it self-healing (a missed 5-min cycle doesn't lose a week) without needing to track "have I already snapshotted this week" as separate state. See `computeCombinedStandings()` / `snapshotStandingsIfWeekComplete()` in `index.js` — the ranking logic there is intentionally kept in sync with the frontend's Combined Standings sort.
 
 ## Frontend
 
@@ -93,6 +100,15 @@ Clicking a team name in the Combined Standings table opens that team's season hi
 Clicking the small "vs" glyph between the two teams on a matchup card, or a week number inside the score-history modal, opens a side-by-side comparison: both teams' full rosters (same Pos/Player/Team/Proj/Actual table as the roster lightbox) for that specific week, with the winning team's header tinted.
 
 For a past week, this shows a caveat note: `rosterForCurrentScoringPeriod` on a schedule entry reflects each team's *current* lineup, not necessarily who they actually started that historical week if they've made roster moves since. Each player's projected/actual points are still correct for that week regardless (stats are keyed by `scoringPeriodId`) — only the "who was starting" grouping could be stale. This isn't shown for the current week, where the lineup is accurate by definition.
+
+### Standings trend chart
+
+Below the standings table, a hand-rolled inline SVG line chart (no charting library — this project has no external JS dependencies) plots each team's combined rank across the season, built from `payload.standingsHistory`: X-axis is week, Y-axis is rank (inverted, rank 1 at the top), one line per team.
+
+- **Color:** each league gets a base hue (red/blue), with lightness spread across that league's teams (`teamLineColor()`), so the palette scales automatically as teams/leagues are added instead of a hardcoded N-color list.
+- **Highlighting:** single-select — clicking a legend chip, a line, or a specific point highlights that team (dims everything else, brings it to the front, thickens the line) so one team's trend is readable even with 16+ overlapping lines. Clicking the same thing again, or "Show all," resets. This is click/tap-driven rather than hover-only, since hover doesn't exist on touch.
+- **Per-point detail:** each point carries a native SVG `<title>` (team, week, rank, points) shown on hover — no custom tooltip UI needed.
+- **Empty state:** shows a placeholder message until at least one week has completed.
 
 ### Matchup card metrics
 
