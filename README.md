@@ -72,14 +72,27 @@ The frontend is a single static `index.html` with no build step. It:
 - Fetches `DASHBOARD_API_URL` (the `getDashboard` endpoint above) on page load
 - Re-fetches every 5 minutes while the tab stays open, aligned to the backend's refresh cycle
 - Renders themed matchup cards per league and a combined, points-sorted standings table (rank, team, record, win%, total points, playoff odds)
-- Highlights the team currently leading a live matchup with a subtle background tint (matching the league's red/blue) behind its name and score
-- A small helmet icon next to each team name links out to that team's ESPN page; clicking the team name itself opens that team's roster (see below)
+- Highlights the team currently leading a live matchup, and the winning side of a completed week, with a subtle background tint (matching the league's red/blue) behind its name and score
+- A small helmet icon next to each team name links out to that team's ESPN page; clicking the team name itself opens a modal (see below)
+- Every clickable element has a hover tooltip describing what it opens
+
+All of the popups below share one modal component (`#modalBackdrop` / `#modalDialog` in `index.html`) — only the body content differs. It's dismissible via the ✕ button, a backdrop click, or Escape, and renders as a full-width bottom sheet on narrow viewports.
 
 ### Roster lightbox
 
-Clicking a team name in a matchup card opens a modal listing that team's roster for the current week — position, player, NFL team, projected points, and actual points, grouped into Starters / Bench / IR. A player flagged by ESPN as questionable, out, etc. gets a small abbreviated badge next to their name (Q, D, O, IR, DTD, SUSP, P, INACT). The modal is rebuilt from the in-memory `leagues` data at click time (not baked into each card's HTML), is keyboard/touch dismissible (✕ button, backdrop click, or Escape), and renders as a full-width bottom sheet on narrow viewports.
+Clicking a team name in a matchup card opens a modal listing that team's roster for the current week — position, player, NFL team, projected points, and actual points, grouped into Starters / Bench / IR. A player flagged by ESPN as questionable, out, etc. gets a small abbreviated badge next to their name (Q, D, O, IR, DTD, SUSP, P, INACT).
 
 Player position, roster slot, and NFL team are resolved from ESPN's undocumented-but-stable numeric ID tables (`POSITION_NAMES`, `SLOT_NAMES`, `PRO_TEAM_ABBR` near the top of the `<script>` block). If ESPN adds a new slot type, the lookup falls back to `—` rather than erroring — extend the relevant map if a new ID shows up.
+
+### Score history
+
+Clicking a team name in the Combined Standings table opens that team's season history — one row per completed week (opponent, score for/against, W/L/T), sourced by walking `league.data.schedule` for every `matchupPeriodId` before the current week (there's no separate "history" endpoint; the schedule already holds every week). The "For" score is tinted in the league's color on weeks that team won, same treatment as the matchup-card winning highlight.
+
+### Matchup comparison
+
+Clicking the small "vs" glyph between the two teams on a matchup card, or a week number inside the score-history modal, opens a side-by-side comparison: both teams' full rosters (same Pos/Player/Team/Proj/Actual table as the roster lightbox) for that specific week, with the winning team's header tinted.
+
+For a past week, this shows a caveat note: `rosterForCurrentScoringPeriod` on a schedule entry reflects each team's *current* lineup, not necessarily who they actually started that historical week if they've made roster moves since. Each player's projected/actual points are still correct for that week regardless (stats are keyed by `scoringPeriodId`) — only the "who was starting" grouping could be stale. This isn't shown for the current week, where the lineup is accurate by definition.
 
 ### Matchup card metrics
 
