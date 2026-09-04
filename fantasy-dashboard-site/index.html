@@ -121,6 +121,30 @@
 
   .empty-note { padding: 12px 4px; font-size: 12px; color: var(--text-dim); }
 
+  /* ---- standings trend chart ---- */
+  .chart-wrap { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+  .chart-svg { width: 100%; height: auto; display: block; }
+  .chart-line { fill: none; stroke-width: 2; transition: stroke-width 0.15s, opacity 0.15s; cursor: pointer; }
+  .chart-point { transition: opacity 0.15s, r 0.15s; cursor: pointer; }
+  .chart-axis-label { fill: var(--text-dim); font-size: 9px; }
+  .chart-gridline { stroke: var(--line); stroke-width: 1; }
+  .chart-wrap.has-selection .chart-line:not(.selected) { opacity: 0.12; }
+  .chart-wrap.has-selection .chart-point:not(.selected) { opacity: 0.12; }
+  .chart-wrap.has-selection .chart-line.selected { stroke-width: 3; }
+  .chart-wrap.has-selection .chart-point.selected { r: 4; }
+
+  .chart-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chart-legend-chip {
+    display: inline-flex; align-items: center; gap: 5px; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 12px; padding: 3px 9px 3px 7px;
+    font-size: 11px; color: var(--text-dim); cursor: pointer;
+  }
+  .chart-legend-chip:hover { border-color: var(--text-dim); }
+  .chart-legend-chip.selected { color: var(--text); border-color: var(--text); background: var(--line); }
+  .chart-legend-swatch { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .chart-reset { font-size: 11px; color: var(--text-dim); background: none; border: none; cursor: pointer; text-decoration: underline; padding: 3px 4px; }
+  .chart-reset:hover { color: var(--text); }
+
   .build-footer { text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--line); }
 
   /* ---- shared lightbox (roster + score history) ---- */
@@ -221,6 +245,9 @@
     <tbody id="standingsBody"></tbody>
   </table>
 
+  <h2 class="section-title">Standings Trend</h2>
+  <div id="chartContainer"></div>
+
   <div class="build-footer" id="buildFooter"></div>
 </div>
 
@@ -248,10 +275,12 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v3.0';
+const BUILD_VERSION = 'v4.0';
 document.getElementById('buildFooter').textContent = `Build ${BUILD_VERSION}`;
 
 let leagues = []; // populated from the API: [{ color, data }]
+let standingsHistory = []; // populated from the API: [{ week, snapshotAt, standings: [...] }]
+let selectedChartTeamId = null; // single-select highlight state for the standings chart
 
 // ESPN-sourced strings (team names, league names, owner names) are
 // user-editable in ESPN's UI and get rendered via innerHTML below --
@@ -431,6 +460,132 @@ function renderAll() {
 
   document.getElementById('standingsBody').innerHTML = rows ||
     '<tr><td colspan="6" class="empty-note">No leagues loaded yet.</td></tr>';
+}
+
+// ---------------------------------------------------------------------
+// Standings trend chart -- one line per team, X = week, Y = combined
+// rank (inverted, rank 1 at top). Built from `standingsHistory`
+// (weekly snapshots written server-side once each week completes).
+// Colors are generated per-league (red/blue hue) with lightness spread
+// across teams in that league, rather than hardcoding a 16-color
+// palette, so it scales automatically as leagues/teams are added.
+// ---------------------------------------------------------------------
+function teamLineColor(leagueColor, indexInLeague, totalInLeague) {
+  const hue = leagueColor === 'blue' ? 213 : 6;
+  const t = totalInLeague > 1 ? indexInLeague / (totalInLeague - 1) : 0;
+  const lightness = 42 + t * 36; // spread dark -> light across teams in the league
+  return `hsl(${hue}, 72%, ${lightness}%)`;
+}
+
+function renderStandingsChart() {
+  const container = document.getElementById('chartContainer');
+
+  if (!standingsHistory.length) {
+    container.innerHTML = '<div class="chart-wrap"><div class="empty-note">No completed weeks yet — check back after Week 1 wraps up.</div></div>';
+    return;
+  }
+
+  const latestWeek = standingsHistory[standingsHistory.length - 1];
+  const teamIds = latestWeek.standings.map(s => s.teamId);
+  const totalTeams = teamIds.length;
+
+  // Stable per-league color-shade assignment (sorted by teamId so it
+  // doesn't reshuffle from week to week).
+  const byLeagueColor = {};
+  latestWeek.standings.forEach(s => {
+    (byLeagueColor[s.leagueColor] = byLeagueColor[s.leagueColor] || []).push(s.teamId);
+  });
+  Object.values(byLeagueColor).forEach(ids => ids.sort((a, b) => a - b));
+
+  const teamMeta = {};
+  latestWeek.standings.forEach(s => {
+    const group = byLeagueColor[s.leagueColor] || [];
+    teamMeta[s.teamId] = {
+      name: s.teamName,
+      lineColor: teamLineColor(s.leagueColor, group.indexOf(s.teamId), group.length),
+    };
+  });
+
+  const seriesByTeam = {};
+  teamIds.forEach(id => { seriesByTeam[id] = []; });
+  standingsHistory.forEach(weekEntry => {
+    weekEntry.standings.forEach(s => {
+      if (!seriesByTeam[s.teamId]) seriesByTeam[s.teamId] = [];
+      seriesByTeam[s.teamId].push({ week: weekEntry.week, rank: s.rank, pointsFor: s.pointsFor });
+    });
+  });
+
+  const weeks = standingsHistory.map(w => w.week);
+  const minWeek = Math.min(...weeks);
+  const maxWeek = Math.max(...weeks);
+
+  const W = 700, H = 360;
+  const padL = 28, padR = 16, padT = 12, padB = 22;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const xForWeek = w => weeks.length > 1 ? padL + ((w - minWeek) / (maxWeek - minWeek)) * plotW : padL + plotW / 2;
+  const yForRank = r => padT + ((r - 1) / Math.max(1, totalTeams - 1)) * plotH;
+
+  let gridSvg = '';
+  for (let w = minWeek; w <= maxWeek; w++) {
+    const x = xForWeek(w);
+    gridSvg += `<line class="chart-gridline" x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}"></line>`;
+    gridSvg += `<text class="chart-axis-label" x="${x}" y="${H - 6}" text-anchor="middle">${w}</text>`;
+  }
+  const rankStep = totalTeams > 12 ? 2 : 1;
+  let yLabelsSvg = '';
+  for (let r = 1; r <= totalTeams; r += rankStep) {
+    yLabelsSvg += `<text class="chart-axis-label" x="${padL - 6}" y="${yForRank(r) + 3}" text-anchor="end">${r}</text>`;
+  }
+
+  let linesSvg = '';
+  let pointsSvg = '';
+  teamIds.forEach(id => {
+    const meta = teamMeta[id];
+    const series = seriesByTeam[id].slice().sort((a, b) => a.week - b.week);
+    if (!series.length) return;
+    const pointsAttr = series.map(p => `${xForWeek(p.week)},${yForRank(p.rank)}`).join(' ');
+    linesSvg += `<polyline class="chart-line" data-team-id="${id}" points="${pointsAttr}" stroke="${meta.lineColor}"></polyline>`;
+    series.forEach(p => {
+      pointsSvg += `<circle class="chart-point" data-team-id="${id}" cx="${xForWeek(p.week)}" cy="${yForRank(p.rank)}" r="3" fill="${meta.lineColor}"><title>${escapeHtml(meta.name)} — Week ${p.week}: Rank ${p.rank}, ${p.pointsFor.toFixed(1)} pts</title></circle>`;
+    });
+  });
+
+  const legendChips = teamIds.slice().sort((a, b) => {
+    const ra = seriesByTeam[a][seriesByTeam[a].length - 1]?.rank ?? 999;
+    const rb = seriesByTeam[b][seriesByTeam[b].length - 1]?.rank ?? 999;
+    return ra - rb;
+  }).map(id => {
+    const meta = teamMeta[id];
+    return `<button type="button" class="chart-legend-chip" data-team-id="${id}" title="Highlight ${escapeHtml(meta.name)}"><span class="chart-legend-swatch" style="background:${meta.lineColor}"></span>${escapeHtml(meta.name)}</button>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="chart-wrap" id="chartWrap">
+      <svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Combined standings rank by week">
+        ${gridSvg}${yLabelsSvg}${linesSvg}${pointsSvg}
+      </svg>
+      <div class="chart-legend">
+        ${legendChips}
+        <button type="button" class="chart-reset" id="chartReset">Show all</button>
+      </div>
+    </div>`;
+
+  applyChartSelection();
+}
+
+function applyChartSelection() {
+  const wrap = document.getElementById('chartWrap');
+  if (!wrap) return;
+  wrap.classList.toggle('has-selection', selectedChartTeamId != null);
+  wrap.querySelectorAll('[data-team-id]').forEach(el => {
+    el.classList.toggle('selected', String(el.dataset.teamId) === String(selectedChartTeamId));
+  });
+}
+
+function toggleChartSelection(teamId) {
+  selectedChartTeamId = String(selectedChartTeamId) === String(teamId) ? null : teamId;
+  applyChartSelection();
 }
 
 // ---------------------------------------------------------------------
@@ -679,6 +834,16 @@ document.addEventListener('click', (e) => {
     openMatchupModal(matchupTrigger.dataset);
     return;
   }
+  const chartEl = e.target.closest('#chartContainer [data-team-id]');
+  if (chartEl) {
+    toggleChartSelection(chartEl.dataset.teamId);
+    return;
+  }
+  if (e.target.id === 'chartReset') {
+    selectedChartTeamId = null;
+    applyChartSelection();
+    return;
+  }
   if (e.target === modalBackdrop) closeModal();
 });
 document.getElementById('modalClose').addEventListener('click', closeModal);
@@ -691,7 +856,9 @@ async function loadDashboard() {
     const res = await fetch(DASHBOARD_API_URL, { cache: 'no-store' });
     const payload = await res.json();
     leagues = payload.leagues || [];
+    standingsHistory = payload.standingsHistory || [];
     renderAll();
+    renderStandingsChart();
     const el = document.getElementById('lastUpdated');
     el.textContent = payload.updatedAt
       ? 'Last updated ' + new Date(payload.updatedAt).toLocaleTimeString()
