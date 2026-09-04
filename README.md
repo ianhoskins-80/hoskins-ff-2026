@@ -71,7 +71,7 @@ The full ESPN response is stored (not a trimmed subset) because the frontend's "
 The frontend is a single static `index.html` with no build step. It:
 - Fetches `DASHBOARD_API_URL` (the `getDashboard` endpoint above) on page load
 - Re-fetches every 5 minutes while the tab stays open, aligned to the backend's refresh cycle
-- Renders themed matchup cards per league and a combined, points-sorted standings table
+- Renders themed matchup cards per league and a combined, points-sorted standings table (rank, team, record, win%, total points, playoff odds)
 - Highlights the team currently leading a live matchup with a subtle background tint (matching the league's red/blue) behind its name and score
 - A small helmet icon next to each team name links out to that team's ESPN page; clicking the team name itself opens that team's roster (see below)
 
