@@ -122,7 +122,11 @@
   .empty-note { padding: 12px 4px; font-size: 12px; color: var(--text-dim); }
 
   /* ---- points-by-position matrix ---- */
-  .matrix-controls { margin-bottom: 10px; }
+  .matrix-controls-row {
+    display: flex; align-items: center; justify-content: flex-end;
+    flex-wrap: wrap; gap: 10px; margin-bottom: 12px;
+  }
+  .matrix-controls-row .filter-pills { margin-right: auto; margin-bottom: 0; }
   .week-select {
     background: var(--card); color: var(--text); border: 1px solid var(--line);
     border-radius: 6px; padding: 5px 8px; font-size: 12px; cursor: pointer;
@@ -299,7 +303,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v6.0';
+const BUILD_VERSION = 'v6.1';
 document.getElementById('buildFooter').textContent = `Build ${BUILD_VERSION}`;
 
 let leagues = []; // populated from the API: [{ color, data }]
@@ -619,7 +623,7 @@ function renderPositionMatrix() {
     const message = effectiveWeek < currentWeek
       ? `No roster snapshot was captured for Week ${effectiveWeek} (snapshots only cover weeks since this feature shipped).`
       : 'No matchups for that week.';
-    container.innerHTML = `<div class="matrix-controls">${weekSelectHtml}</div><div class="empty-note">${message}</div>`;
+    container.innerHTML = `<div class="matrix-controls-row">${weekSelectHtml}</div><div class="empty-note">${message}</div>`;
     return;
   }
 
@@ -659,8 +663,7 @@ function renderPositionMatrix() {
   }).join('');
 
   container.innerHTML = `
-    <div class="matrix-controls">${weekSelectHtml}</div>
-    ${pillsHtml}
+    <div class="matrix-controls-row">${pillsHtml}${weekSelectHtml}</div>
     ${caveatHtml}
     <div class="matrix-scroll">
       <table>
