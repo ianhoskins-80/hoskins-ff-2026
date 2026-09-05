@@ -88,6 +88,7 @@ The frontend is a single static `index.html` with no build step. It:
 - Fetches `DASHBOARD_API_URL` (the `getDashboard` endpoint above) on page load
 - Re-fetches every 5 minutes while the tab stays open, aligned to the backend's refresh cycle
 - Renders themed matchup cards per league and a combined, points-sorted standings table (rank, team, record, win%, total points, playoff odds)
+- Each league's banner shows that league's combined total projected points for the week, plus a running combined total-so-far once any game in that league has started
 - Highlights the team currently leading a live matchup, and the winning side of a completed week, with a subtle background tint (matching the league's red/blue) behind its name and score
 - A small helmet icon next to each team name links out to that team's ESPN page; clicking the team name itself opens a modal (see below)
 - Every clickable element has a hover tooltip describing what it opens
