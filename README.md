@@ -101,6 +101,13 @@ Clicking the small "vs" glyph between the two teams on a matchup card, or a week
 
 For a past week, this shows a caveat note: `rosterForCurrentScoringPeriod` on a schedule entry reflects each team's *current* lineup, not necessarily who they actually started that historical week if they've made roster moves since. Each player's projected/actual points are still correct for that week regardless (stats are keyed by `scoringPeriodId`) — only the "who was starting" grouping could be stale. This isn't shown for the current week, where the lineup is accurate by definition.
 
+### Points by position
+
+Below "This Week's Matchups," a matrix table: one row per team (combined across leagues, sorted the same way as Combined Standings), one column per real position (QB/RB/WR/TE/D-ST/K/HC — a FLEX-WR counts under WR, not a separate FLEX column). Each cell is that position's summed **actual** points for the current week (falls back to summed projected, shown in italics, before kickoff). Built entirely from the same per-game roster data already used by the roster lightbox — no backend changes.
+
+- **Multi-player cells:** a team starting 2 RBs sums to one RB total; hovering a cell (native `title` tooltip) or clicking it (opens the shared modal) shows the per-player breakdown behind that number.
+- **League filter:** pill buttons ("All Leagues" / each league by name) above the table filter which rows show. Only appears once more than one league has data — with a single league it'd just be a redundant "All" vs. itself, so it self-activates once League 2 joins rather than needing a code change.
+
 ### Standings trend chart
 
 Below the standings table, a hand-rolled inline SVG line chart (no charting library — this project has no external JS dependencies) plots each team's combined rank across the season, built from `payload.standingsHistory`: X-axis is week (labeled "Week"), Y-axis is rank (labeled "Rank (1 = best)", inverted so rank 1 is at the top), one line per team.
@@ -109,6 +116,8 @@ Below the standings table, a hand-rolled inline SVG line chart (no charting libr
 - **Filtering:** multi-select (`selectedChartTeamIds`, a `Set`) — clicking a legend chip, a line, or a specific point toggles that team into or out of the shown set. With nothing selected, all teams show (the default). Once one or more are selected, every *other* team's line and points are fully hidden (not just dimmed), so comparing a handful of specific teams out of 16+ stays legible. "Show all" clears the set. This is click/tap-driven rather than hover-only, since hover doesn't exist on touch.
 - **Per-point detail:** each point carries a native SVG `<title>` (team, week, rank, points) shown on hover — no custom tooltip UI needed.
 - **Empty state:** shows a placeholder message until at least one week has completed.
+
+> **Team identity across leagues:** ESPN's numeric team `id` is only unique *within* one league — two independently-created leagues can (and likely will) both have a team with id `1`. Both the chart and the position matrix key teams by `${leagueColor}:${teamId}`, not the raw id, so teams from different leagues never collide into one line/row. Keep this in mind if you add another feature that indexes teams by id.
 
 ### Matchup card metrics
 
