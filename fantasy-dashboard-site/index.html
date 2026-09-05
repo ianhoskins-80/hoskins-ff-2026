@@ -122,6 +122,11 @@
   .empty-note { padding: 12px 4px; font-size: 12px; color: var(--text-dim); }
 
   /* ---- points-by-position matrix ---- */
+  .matrix-controls { margin-bottom: 10px; }
+  .week-select {
+    background: var(--card); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 8px; font-size: 12px; cursor: pointer;
+  }
   .filter-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
   .filter-pill {
     display: inline-flex; align-items: center; background: var(--card);
@@ -294,13 +299,14 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v5.1';
+const BUILD_VERSION = 'v5.2';
 document.getElementById('buildFooter').textContent = `Build ${BUILD_VERSION}`;
 
 let leagues = []; // populated from the API: [{ color, data }]
 let standingsHistory = []; // populated from the API: [{ week, snapshotAt, standings: [...] }]
 let selectedChartTeamIds = new Set(); // multi-select filter state for the standings chart
 let matrixLeagueFilter = 'all'; // 'all' or a league color -- row filter for the points-by-position matrix
+let matrixSelectedWeek = null; // null = always track the current week; a number once the user picks one explicitly
 
 // ESPN-sourced strings (team names, league names, owner names) are
 // user-editable in ESPN's UI and get rendered via innerHTML below --
@@ -499,13 +505,12 @@ function renderAll() {
 // ESPN team id, since that id is only unique *within* one league (see
 // the same fix applied to the standings chart above).
 // ---------------------------------------------------------------------
-function buildPositionMatrixRows() {
+function buildPositionMatrixRows(week) {
   const rows = [];
 
   leagues.forEach((league, leagueIdx) => {
     const { data, color } = league;
     const teams = data.teams || [];
-    const week = data.status?.currentMatchupPeriod ?? 1;
     const weekGames = (data.schedule || []).filter(g => g.matchupPeriodId === week);
     const teamById = id => teams.find(t => t.id === id);
 
@@ -545,12 +550,31 @@ function buildPositionMatrixRows() {
   return rows;
 }
 
+function currentWeekAcrossLeagues() {
+  return leagues[0]?.data?.status?.currentMatchupPeriod ?? 1;
+}
+
 function renderPositionMatrix() {
   const container = document.getElementById('matrixContainer');
-  const rows = buildPositionMatrixRows();
+
+  if (!leagues.length) {
+    container.innerHTML = '<div class="empty-note">No matchups loaded yet.</div>';
+    return;
+  }
+
+  const currentWeek = currentWeekAcrossLeagues();
+  const effectiveWeek = matrixSelectedWeek != null ? matrixSelectedWeek : currentWeek;
+  const rows = buildPositionMatrixRows(effectiveWeek);
+
+  const weekOptions = [];
+  for (let w = 1; w <= currentWeek; w++) weekOptions.push(w);
+  const weekSelectHtml = `
+    <select class="week-select" id="matrixWeekSelect">
+      ${weekOptions.map(w => `<option value="${w}" ${w === effectiveWeek ? 'selected' : ''}>Week ${w}${w === currentWeek ? ' (Current)' : ''}</option>`).join('')}
+    </select>`;
 
   if (!rows.length) {
-    container.innerHTML = '<div class="empty-note">No matchups loaded yet.</div>';
+    container.innerHTML = `<div class="matrix-controls">${weekSelectHtml}</div><div class="empty-note">No matchups for that week.</div>`;
     return;
   }
 
@@ -571,6 +595,10 @@ function renderPositionMatrix() {
   const filterActive = leagueColorsPresent.length > 1 && matrixLeagueFilter !== 'all';
   const filteredRows = filterActive ? rows.filter(r => r.leagueColor === matrixLeagueFilter) : rows;
 
+  const caveatHtml = effectiveWeek < currentWeek
+    ? '<div class="matchup-caveat">Rosters reflect each team\'s current lineup, which may differ from who actually started this past week.</div>'
+    : '';
+
   const headerCells = POSITION_COLUMNS.map(p => `<th class="num">${p}</th>`).join('');
   const bodyRows = filteredRows.map(row => {
     const cells = POSITION_COLUMNS.map(pos => {
@@ -586,7 +614,9 @@ function renderPositionMatrix() {
   }).join('');
 
   container.innerHTML = `
+    <div class="matrix-controls">${weekSelectHtml}</div>
     ${pillsHtml}
+    ${caveatHtml}
     <div class="matrix-scroll">
       <table>
         <thead><tr><th>Team</th>${headerCells}</tr></thead>
@@ -596,7 +626,8 @@ function renderPositionMatrix() {
 }
 
 function openPositionCellModal({ teamKey, position }) {
-  const rows = buildPositionMatrixRows();
+  const effectiveWeek = matrixSelectedWeek != null ? matrixSelectedWeek : currentWeekAcrossLeagues();
+  const rows = buildPositionMatrixRows(effectiveWeek);
   const row = rows.find(r => r.key === teamKey);
   if (!row) return;
   const bucket = row.positions[position];
@@ -613,7 +644,7 @@ function openPositionCellModal({ teamKey, position }) {
 
   openModal({
     title: `${row.teamName} — ${position}`,
-    subtitle: `Total: ${bucket.total.toFixed(1)}${bucket.allProjected && bucket.players.length ? ' (projected)' : ''}`,
+    subtitle: `Week ${effectiveWeek} — Total: ${bucket.total.toFixed(1)}${bucket.allProjected && bucket.players.length ? ' (projected)' : ''}`,
     bodyHtml: `<table><thead><tr><th>Player</th><th class="num">Proj</th><th class="num">Actual</th></tr></thead><tbody>${playerRows}</tbody></table>`,
     color: row.leagueColor,
   });
@@ -1042,6 +1073,13 @@ document.addEventListener('click', (e) => {
 document.getElementById('modalClose').addEventListener('click', closeModal);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !modalBackdrop.hidden) closeModal();
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'matrixWeekSelect') {
+    const week = Number(e.target.value);
+    matrixSelectedWeek = week === currentWeekAcrossLeagues() ? null : week;
+    renderPositionMatrix();
+  }
 });
 
 async function loadDashboard() {
