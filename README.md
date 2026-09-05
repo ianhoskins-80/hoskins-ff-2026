@@ -103,7 +103,7 @@ For a past week, this shows a caveat note: `rosterForCurrentScoringPeriod` on a 
 
 ### Points by position
 
-Below "This Week's Matchups," a matrix table: one row per team (combined across leagues, sorted the same way as Combined Standings), one column per real position (QB/RB/WR/TE/D-ST/K/HC — a FLEX-WR counts under WR, not a separate FLEX column). Each cell is that position's summed **actual** points for the current week (falls back to summed projected, shown in italics, before kickoff). Built entirely from the same per-game roster data already used by the roster lightbox — no backend changes.
+Below "This Week's Matchups," a matrix table: one row per team (combined across leagues, sorted alphabetically by team name), one column per real position (QB/RB/WR/TE/D-ST/K/HC — a FLEX-WR counts under WR, not a separate FLEX column). Each cell is that position's summed **actual** points for the current week (falls back to summed projected, shown in italics, before kickoff). Built entirely from the same per-game roster data already used by the roster lightbox — no backend changes.
 
 - **Multi-player cells:** a team starting 2 RBs sums to one RB total; hovering a cell (native `title` tooltip) or clicking it (opens the shared modal) shows the per-player breakdown behind that number.
 - **League filter:** pill buttons ("All Leagues" / each league by name) above the table filter which rows show. Only appears once more than one league has data — with a single league it'd just be a redundant "All" vs. itself, so it self-activates once League 2 joins rather than needing a code change.

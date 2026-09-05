@@ -294,7 +294,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v5.0';
+const BUILD_VERSION = 'v5.1';
 document.getElementById('buildFooter').textContent = `Build ${BUILD_VERSION}`;
 
 let leagues = []; // populated from the API: [{ color, data }]
@@ -536,14 +536,12 @@ function buildPositionMatrixRows() {
           teamName: team ? team.name : 'TBD',
           leagueColor: color,
           positions,
-          sortPf: team?.record?.overall?.pointsFor ?? 0,
-          sortProjRank: team?.currentProjectedRank ?? 99,
         });
       });
     });
   });
 
-  rows.sort((a, b) => b.sortPf - a.sortPf || a.sortProjRank - b.sortProjRank);
+  rows.sort((a, b) => a.teamName.localeCompare(b.teamName));
   return rows;
 }
 
