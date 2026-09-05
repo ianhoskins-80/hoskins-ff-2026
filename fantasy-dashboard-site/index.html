@@ -54,12 +54,14 @@
 
   /* ---- matchups, one block per league ---- */
   .matchup-block { border-radius: 6px; overflow: hidden; margin-bottom: 18px; border: 1px solid var(--line); }
-  .matchup-block-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; color: #fff; font-weight: 700; font-size: 15px; }
+  .matchup-block-head { padding: 12px 18px; color: #fff; }
   .matchup-block-head a { color: #fff; text-decoration: none; }
   .matchup-block-head a:hover { text-decoration: underline; }
   .matchup-block.red .matchup-block-head { background: var(--red); }
   .matchup-block.blue .matchup-block-head { background: var(--blue); }
+  .matchup-block-head-row { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 15px; }
   .matchup-block-head .week-note { font-weight: 400; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; opacity: 0.85; }
+  .matchup-block-totals { margin-top: 4px; font-size: 11px; opacity: 0.85; font-variant-numeric: tabular-nums; }
 
   .matchup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; padding: 14px; }
   .matchup-block.red .matchup-grid { background: var(--red-tint); }
@@ -303,7 +305,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v6.1';
+const BUILD_VERSION = 'v6.2';
 document.getElementById('buildFooter').textContent = `Build ${BUILD_VERSION}`;
 
 let leagues = []; // populated from the API: [{ color, data }]
@@ -446,11 +448,22 @@ function renderMatchupsBlock(league, leagueIdx) {
 
   const status = anyScores ? '' : ' — not yet started';
 
+  const leagueTotals = weekGames.reduce((acc, g) => {
+    acc.projected += (g.home?.totalProjectedPoints ?? 0) + (g.away?.totalProjectedPoints ?? 0);
+    acc.accumulated += (g.home?.totalPoints ?? 0) + (g.away?.totalPoints ?? 0);
+    return acc;
+  }, { projected: 0, accumulated: 0 });
+  const totalsLine = `Total Projected ${leagueTotals.projected.toFixed(1)}`
+    + (anyScores ? ` · Total So Far ${leagueTotals.accumulated.toFixed(1)}` : '');
+
   return `
     <div class="matchup-block ${color}">
       <div class="matchup-block-head">
-        <a href="${leagueUrl}" target="_blank" rel="noopener noreferrer" title="View ${leagueName} on ESPN">${leagueName}</a>
-        <span class="week-note">Week ${week}${status}</span>
+        <div class="matchup-block-head-row">
+          <a href="${leagueUrl}" target="_blank" rel="noopener noreferrer" title="View ${leagueName} on ESPN">${leagueName}</a>
+          <span class="week-note">Week ${week}${status}</span>
+        </div>
+        <div class="matchup-block-totals">${totalsLine}</div>
       </div>
       <div class="matchup-grid">${cards}</div>
     </div>`;
