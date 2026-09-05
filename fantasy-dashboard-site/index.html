@@ -261,6 +261,7 @@
   <div id="matrixContainer"></div>
 
   <h2 class="section-title">Combined Standings</h2>
+  <div id="standingsFilterContainer"></div>
   <table>
     <thead>
       <tr>
@@ -305,7 +306,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v6.4';
+const BUILD_VERSION = 'v6.5';
 document.getElementById('buildFooter').textContent = `Build ${BUILD_VERSION}`;
 
 let leagues = []; // populated from the API: [{ color, data }]
@@ -313,6 +314,7 @@ let standingsHistory = []; // populated from the API: [{ week, snapshotAt, stand
 let rosterHistory = []; // populated from the API: [{ week, snapshotAt, teams: { "color:teamId": { teamName, leagueColor, players } } }]
 let selectedChartTeamIds = new Set(); // multi-select filter state for the standings chart
 let matrixLeagueFilter = 'all'; // 'all' or a league color -- row filter for the points-by-position matrix
+let standingsLeagueFilter = 'all'; // 'all' or a league color -- row filter for Combined Standings
 let matrixSelectedWeek = null; // null = always track the current week; a number once the user picks one explicitly
 
 // ESPN-sourced strings (team names, league names, owner names) are
@@ -486,8 +488,32 @@ function renderAll() {
     if (bpf !== apf) return bpf - apf;
     return (a.team.currentProjectedRank ?? 99) - (b.team.currentProjectedRank ?? 99);
   });
+  // Assign each row its combined (cross-league) rank before filtering, so
+  // filtering to one league narrows which rows are *visible* without
+  // changing what "rank" means -- this table is the combined standings,
+  // so a filtered view still shows each team's true overall position
+  // rather than re-numbering 1..N within just that league.
+  allRows.forEach((row, i) => { row.rank = i + 1; });
 
-  const rows = allRows.map((row, i) => {
+  const leagueNameByColor = {};
+  leagues.forEach(l => { leagueNameByColor[l.color] = l.data.settings?.name || l.color; });
+  const leagueColorsPresent = [...new Set(allRows.map(r => r.color))];
+
+  let standingsPillsHtml = '';
+  if (leagueColorsPresent.length > 1) {
+    const pills = ['all', ...leagueColorsPresent].map(val => {
+      const label = val === 'all' ? 'All Leagues' : escapeHtml(leagueNameByColor[val] || val);
+      const selected = standingsLeagueFilter === val ? 'selected' : '';
+      return `<button type="button" class="filter-pill ${selected}" data-standings-filter="${val}">${label}</button>`;
+    }).join('');
+    standingsPillsHtml = `<div class="filter-pills">${pills}</div>`;
+  }
+  document.getElementById('standingsFilterContainer').innerHTML = standingsPillsHtml;
+
+  const filterActive = leagueColorsPresent.length > 1 && standingsLeagueFilter !== 'all';
+  const filteredRows = filterActive ? allRows.filter(r => r.color === standingsLeagueFilter) : allRows;
+
+  const rows = filteredRows.map(row => {
     const t = row.team;
     const rec = t.record?.overall;
     const recordStr = rec ? `${rec.wins}-${rec.losses}${rec.ties ? '-' + rec.ties : ''}` : '—';
@@ -499,7 +525,7 @@ function renderAll() {
     const owner = memberName(row.data, t.primaryOwner);
     return `
       <tr class="row-${row.color}">
-        <td class="rank-col"><span class="rank-badge">${i + 1}</span></td>
+        <td class="rank-col"><span class="rank-badge">${row.rank}</span></td>
         <td><button type="button" class="team-name standings-team-trigger" data-league-idx="${row.leagueIdx}" data-team-id="${t.id}" data-color="${row.color}" title="View ${escapeHtml(t.name)}'s score history">${escapeHtml(t.name)}</button><span class="team-owner">${escapeHtml(owner)}</span></td>
         <td class="num">${recordStr}</td>
         <td class="num">${winPct}</td>
@@ -1171,6 +1197,12 @@ document.addEventListener('click', (e) => {
   if (matrixFilterPill) {
     matrixLeagueFilter = matrixFilterPill.dataset.matrixFilter;
     renderPositionMatrix();
+    return;
+  }
+  const standingsFilterPill = e.target.closest('[data-standings-filter]');
+  if (standingsFilterPill) {
+    standingsLeagueFilter = standingsFilterPill.dataset.standingsFilter;
+    renderAll();
     return;
   }
   const matrixCell = e.target.closest('.matrix-cell');
