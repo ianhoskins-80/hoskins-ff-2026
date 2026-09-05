@@ -103,9 +103,11 @@ For a past week, this shows a caveat note: `rosterForCurrentScoringPeriod` on a 
 
 ### Points by position
 
-Below "This Week's Matchups," a matrix table: one row per team (combined across leagues, sorted alphabetically by team name), one column per real position (QB/RB/WR/TE/D-ST/K/HC — a FLEX-WR counts under WR, not a separate FLEX column). Each cell is that position's summed **actual** points for the current week (falls back to summed projected, shown in italics, before kickoff). Built entirely from the same per-game roster data already used by the roster lightbox — no backend changes.
+Below "This Week's Matchups," a matrix table: one row per team (combined across leagues, sorted alphabetically by team name), one column per real position (QB/RB/WR/TE/D-ST/K/HC — a FLEX-WR counts under WR, not a separate FLEX column). Each cell is that position's summed **actual** points for the selected week (falls back to summed projected, shown in italics, before kickoff). Built entirely from the same per-game roster data already used by the roster lightbox — no backend changes.
 
-- **Multi-player cells:** a team starting 2 RBs sums to one RB total; hovering a cell (native `title` tooltip) or clicking it (opens the shared modal) shows the per-player breakdown behind that number.
+- **Week selector:** a dropdown above the table lists every week from 1 through the current one, defaulting to the current week. Picking a week is "sticky" across the page's 5-minute auto-refresh (it won't snap back to current on its own) until you pick "(Current)" again, which returns it to always tracking the live current week.
+- **Past-week caveat:** picking a week before the current one shows the same caveat as Matchup Comparison — `rosterForCurrentScoringPeriod` reflects each team's *current* lineup, not necessarily who actually started that historical week if they've made roster moves since. Points themselves are still correct for that week (they're keyed by `scoringPeriodId`); only the "who was starting" grouping could be stale.
+- **Multi-player cells:** a team starting 2 RBs sums to one RB total; hovering a cell (native `title` tooltip) or clicking it (opens the shared modal, labeled with the selected week) shows the per-player breakdown behind that number.
 - **League filter:** pill buttons ("All Leagues" / each league by name) above the table filter which rows show. Only appears once more than one league has data — with a single league it'd just be a redundant "All" vs. itself, so it self-activates once League 2 joins rather than needing a code change.
 
 ### Standings trend chart
