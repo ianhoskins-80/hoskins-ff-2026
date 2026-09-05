@@ -31,6 +31,18 @@ async function fetchLeague(leagueId) {
   return res.json();
 }
 
+// Mirrors the same lookup tables in the frontend (POSITION_NAMES/SLOT_NAMES/
+// PRO_TEAM_ABBR in index.html) -- duplicated here, like computeCombinedStandings
+// below, so the roster snapshot can be built server-side. Keep in sync.
+const POSITION_NAMES = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'D/ST' };
+const SLOT_NAMES = { 0: 'QB', 2: 'RB', 3: 'RB/WR', 4: 'WR', 5: 'WR/TE', 6: 'TE', 7: 'OP', 16: 'D/ST', 17: 'K', 19: 'HC', 20: 'BE', 21: 'IR', 23: 'FLEX' };
+const PRO_TEAM_ABBR = {
+  0: 'FA', 1: 'ATL', 2: 'BUF', 3: 'CHI', 4: 'CIN', 5: 'CLE', 6: 'DAL', 7: 'DEN',
+  8: 'DET', 9: 'GB', 10: 'TEN', 11: 'IND', 12: 'KC', 13: 'LV', 14: 'LAR', 15: 'MIA',
+  16: 'MIN', 17: 'NE', 18: 'NO', 19: 'NYG', 20: 'NYJ', 21: 'PHI', 22: 'ARI', 23: 'PIT',
+  24: 'LAC', 25: 'SF', 26: 'SEA', 27: 'TB', 28: 'WSH', 29: 'CAR', 30: 'JAX', 33: 'BAL', 34: 'HOU',
+};
+
 // Combined cross-league rank, sorted by season pointsFor -- same logic the
 // frontend uses for the "Combined Standings" table, duplicated here so a
 // weekly snapshot can be computed server-side. Keep these two in sync if
@@ -86,6 +98,83 @@ async function snapshotStandingsIfWeekComplete(results) {
   }
 }
 
+// Snapshots every team's roster for the CURRENT week, every single run --
+// unlike snapshotStandingsIfWeekComplete (which snapshots the week that
+// just ended), this can't wait until a week is over to capture it.
+// ESPN's `rosterForCurrentScoringPeriod` field is only populated for
+// whichever week is presently active; every other week's schedule entry
+// comes back with zero roster entries (confirmed by inspecting the live
+// API response -- it's not "stale," it's empty). So the only reliable
+// moment to capture a week's roster is *while it's still current*, and
+// by the time the week ends and ESPN moves on, our last-captured
+// snapshot (from minutes before rollover, with final stats already
+// posted) is already safely in our own Firestore.
+//
+// Stores a trimmed per-player record (name/position/team/injury/points),
+// not the raw ESPN blob, which carries a lot of nested stat-projection
+// data this app doesn't need and would otherwise accumulate all season.
+function buildRosterSnapshot(results) {
+  const currentWeek = results[0]?.data?.status?.currentMatchupPeriod ?? 1;
+  const teamsOut = {};
+
+  results.forEach(({ color, data }) => {
+    const teams = data.teams || [];
+    const teamById = id => teams.find(t => t.id === id);
+    const weekGames = (data.schedule || []).filter(g => g.matchupPeriodId === currentWeek);
+
+    weekGames.forEach(g => {
+      ['home', 'away'].forEach(side => {
+        const sideData = g[side];
+        if (!sideData) return;
+        const team = teamById(sideData.teamId);
+        const entries = (sideData.rosterForCurrentScoringPeriod?.entries || []).filter(Boolean);
+
+        const players = entries.map(entry => {
+          const player = entry.playerPoolEntry?.player || {};
+          const stats = player.stats || [];
+          const actualStat = stats.find(s => s.scoringPeriodId === currentWeek && s.statSourceId === 0);
+          const projStat = stats.find(s => s.scoringPeriodId === currentWeek && s.statSourceId === 1);
+          const slot = entry.lineupSlotId === 20 ? 'bench' : entry.lineupSlotId === 21 ? 'ir' : 'starter';
+
+          return {
+            name: player.fullName || 'Empty',
+            position: POSITION_NAMES[player.defaultPositionId] || SLOT_NAMES[entry.lineupSlotId] || null,
+            nflTeam: PRO_TEAM_ABBR[player.proTeamId] ?? null,
+            injuryStatus: player.injuryStatus || null,
+            slot,
+            lineupSlotId: entry.lineupSlotId,
+            actual: actualStat ? actualStat.appliedTotal : null,
+            projected: projStat ? projStat.appliedTotal : null,
+          };
+        });
+
+        teamsOut[`${color}:${sideData.teamId}`] = {
+          teamName: team ? team.name : 'TBD',
+          leagueColor: color,
+          players,
+        };
+      });
+    });
+  });
+
+  return { week: currentWeek, teams: teamsOut };
+}
+
+async function snapshotCurrentWeekRosters(results) {
+  const { week, teams } = buildRosterSnapshot(results);
+  if (!Object.keys(teams).length) return;
+
+  try {
+    await firestore.collection('roster-history').doc(String(week)).set({
+      week,
+      snapshotAt: new Date().toISOString(),
+      teams,
+    });
+  } catch (err) {
+    console.error('Failed to snapshot roster history:', err.message);
+  }
+}
+
 async function refreshAllLeagues() {
   const results = [];
   for (const league of LEAGUES) {
@@ -105,6 +194,7 @@ async function refreshAllLeagues() {
   });
 
   await snapshotStandingsIfWeekComplete(results);
+  await snapshotCurrentWeekRosters(results);
 
   return results;
 }
@@ -144,13 +234,16 @@ functions.http('getDashboard', async (req, res) => {
     const historySnapshot = await firestore.collection('standings-history').orderBy('week').get();
     const standingsHistory = historySnapshot.docs.map(d => d.data());
 
+    const rosterHistorySnapshot = await firestore.collection('roster-history').orderBy('week').get();
+    const rosterHistory = rosterHistorySnapshot.docs.map(d => d.data());
+
     const doc = await firestore.collection('fantasy-dashboard').doc('latest').get();
     if (!doc.exists) {
       const results = await refreshAllLeagues();
-      res.status(200).json({ leagues: results, updatedAt: new Date().toISOString(), standingsHistory });
+      res.status(200).json({ leagues: results, updatedAt: new Date().toISOString(), standingsHistory, rosterHistory });
       return;
     }
-    res.status(200).json({ ...doc.data(), standingsHistory });
+    res.status(200).json({ ...doc.data(), standingsHistory, rosterHistory });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
