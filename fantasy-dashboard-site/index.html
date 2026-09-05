@@ -121,6 +121,21 @@
 
   .empty-note { padding: 12px 4px; font-size: 12px; color: var(--text-dim); }
 
+  /* ---- points-by-position matrix ---- */
+  .filter-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .filter-pill {
+    display: inline-flex; align-items: center; background: var(--card);
+    border: 1px solid var(--line); border-radius: 12px; padding: 4px 12px;
+    font-size: 12px; color: var(--text-dim); cursor: pointer;
+  }
+  .filter-pill:hover { border-color: var(--text-dim); }
+  .filter-pill.selected { color: var(--text); border-color: var(--text); background: var(--line); }
+  .matrix-scroll { overflow-x: auto; }
+  .matrix-scroll table { min-width: 560px; }
+  td.matrix-cell { cursor: pointer; }
+  td.matrix-cell:hover { background: var(--line); }
+  td.matrix-projected { font-style: italic; color: var(--text-dim); }
+
   /* ---- standings trend chart ---- */
   .chart-wrap { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
   .chart-svg { width: 100%; height: auto; display: block; }
@@ -231,6 +246,9 @@
   <h2 class="section-title">This Week's Matchups</h2>
   <div id="matchupsContainer"></div>
 
+  <h2 class="section-title">Points by Position</h2>
+  <div id="matrixContainer"></div>
+
   <h2 class="section-title">Combined Standings</h2>
   <table>
     <thead>
@@ -276,12 +294,13 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v4.1';
+const BUILD_VERSION = 'v5.0';
 document.getElementById('buildFooter').textContent = `Build ${BUILD_VERSION}`;
 
 let leagues = []; // populated from the API: [{ color, data }]
 let standingsHistory = []; // populated from the API: [{ week, snapshotAt, standings: [...] }]
 let selectedChartTeamIds = new Set(); // multi-select filter state for the standings chart
+let matrixLeagueFilter = 'all'; // 'all' or a league color -- row filter for the points-by-position matrix
 
 // ESPN-sourced strings (team names, league names, owner names) are
 // user-editable in ESPN's UI and get rendered via innerHTML below --
@@ -318,6 +337,10 @@ const COMPARE_SVG = `<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://
 // not documented anywhere official, but stable and widely relied on.
 const POSITION_NAMES = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'D/ST' };
 const SLOT_NAMES = { 0: 'QB', 2: 'RB', 3: 'RB/WR', 4: 'WR', 5: 'WR/TE', 6: 'TE', 7: 'OP', 16: 'D/ST', 17: 'K', 19: 'HC', 20: 'BE', 21: 'IR', 23: 'FLEX' };
+// Column set for the points-by-position matrix -- real positions (not
+// roster slots), so a FLEX-WR counts under WR rather than a separate
+// FLEX column.
+const POSITION_COLUMNS = ['QB', 'RB', 'WR', 'TE', 'D/ST', 'K', 'HC'];
 const PRO_TEAM_ABBR = {
   0: 'FA', 1: 'ATL', 2: 'BUF', 3: 'CHI', 4: 'CIN', 5: 'CLE', 6: 'DAL', 7: 'DEN',
   8: 'DET', 9: 'GB', 10: 'TEN', 11: 'IND', 12: 'KC', 13: 'LV', 14: 'LAR', 15: 'MIA',
@@ -464,6 +487,141 @@ function renderAll() {
 }
 
 // ---------------------------------------------------------------------
+// Points-by-position matrix -- one row per team, one column per real
+// position (not roster slot -- a FLEX-WR counts under WR). Cell value
+// is that position's summed actual points this week (falls back to
+// projected, shown in italics, before kickoff); hover/click reveals
+// which specific starter(s) contributed. Built entirely from data
+// already in `leagues` (the same per-game roster data behind the
+// roster lightbox and matchup comparison) -- no backend changes.
+//
+// Row keys are `${leagueColor}:${teamId}` throughout, not the raw
+// ESPN team id, since that id is only unique *within* one league (see
+// the same fix applied to the standings chart above).
+// ---------------------------------------------------------------------
+function buildPositionMatrixRows() {
+  const rows = [];
+
+  leagues.forEach((league, leagueIdx) => {
+    const { data, color } = league;
+    const teams = data.teams || [];
+    const week = data.status?.currentMatchupPeriod ?? 1;
+    const weekGames = (data.schedule || []).filter(g => g.matchupPeriodId === week);
+    const teamById = id => teams.find(t => t.id === id);
+
+    weekGames.forEach(g => {
+      ['home', 'away'].forEach(side => {
+        const sideData = g[side];
+        if (!sideData) return;
+        const team = teamById(sideData.teamId);
+        const entries = (sideData.rosterForCurrentScoringPeriod?.entries || []).filter(Boolean);
+        const starters = entries.filter(e => e.lineupSlotId !== 20 && e.lineupSlotId !== 21);
+
+        const positions = {};
+        POSITION_COLUMNS.forEach(p => { positions[p] = { total: 0, allProjected: true, players: [] }; });
+
+        starters.forEach(entry => {
+          const player = entry.playerPoolEntry?.player || {};
+          const posKey = POSITION_NAMES[player.defaultPositionId] || SLOT_NAMES[entry.lineupSlotId];
+          const bucket = positions[posKey];
+          if (!bucket) return; // unmapped position -- skip rather than error
+          const { actual, projected } = playerPointsRaw(player, week);
+          bucket.total += actual != null ? actual : (projected != null ? projected : 0);
+          if (actual != null) bucket.allProjected = false;
+          bucket.players.push({ name: player.fullName || 'Empty', actual, projected });
+        });
+
+        rows.push({
+          key: `${color}:${sideData.teamId}`,
+          teamName: team ? team.name : 'TBD',
+          leagueColor: color,
+          positions,
+          sortPf: team?.record?.overall?.pointsFor ?? 0,
+          sortProjRank: team?.currentProjectedRank ?? 99,
+        });
+      });
+    });
+  });
+
+  rows.sort((a, b) => b.sortPf - a.sortPf || a.sortProjRank - b.sortProjRank);
+  return rows;
+}
+
+function renderPositionMatrix() {
+  const container = document.getElementById('matrixContainer');
+  const rows = buildPositionMatrixRows();
+
+  if (!rows.length) {
+    container.innerHTML = '<div class="empty-note">No matchups loaded yet.</div>';
+    return;
+  }
+
+  const leagueNameByColor = {};
+  leagues.forEach(l => { leagueNameByColor[l.color] = l.data.settings?.name || l.color; });
+  const leagueColorsPresent = [...new Set(rows.map(r => r.leagueColor))];
+
+  let pillsHtml = '';
+  if (leagueColorsPresent.length > 1) {
+    const pills = ['all', ...leagueColorsPresent].map(val => {
+      const label = val === 'all' ? 'All Leagues' : escapeHtml(leagueNameByColor[val] || val);
+      const selected = matrixLeagueFilter === val ? 'selected' : '';
+      return `<button type="button" class="filter-pill ${selected}" data-matrix-filter="${val}">${label}</button>`;
+    }).join('');
+    pillsHtml = `<div class="filter-pills">${pills}</div>`;
+  }
+
+  const filterActive = leagueColorsPresent.length > 1 && matrixLeagueFilter !== 'all';
+  const filteredRows = filterActive ? rows.filter(r => r.leagueColor === matrixLeagueFilter) : rows;
+
+  const headerCells = POSITION_COLUMNS.map(p => `<th class="num">${p}</th>`).join('');
+  const bodyRows = filteredRows.map(row => {
+    const cells = POSITION_COLUMNS.map(pos => {
+      const bucket = row.positions[pos];
+      if (!bucket.players.length) return '<td class="num">—</td>';
+      const breakdown = bucket.players
+        .map(p => `${p.name}: ${(p.actual ?? p.projected ?? 0).toFixed(1)}${p.actual == null ? ' (proj)' : ''}`)
+        .join('\n');
+      const cls = bucket.allProjected ? 'matrix-cell matrix-projected' : 'matrix-cell';
+      return `<td class="num ${cls}" data-team-key="${row.key}" data-position="${pos}" title="${escapeHtml(breakdown)}">${bucket.total.toFixed(1)}</td>`;
+    }).join('');
+    return `<tr class="row-${row.leagueColor}"><td>${escapeHtml(row.teamName)}</td>${cells}</tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    ${pillsHtml}
+    <div class="matrix-scroll">
+      <table>
+        <thead><tr><th>Team</th>${headerCells}</tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>`;
+}
+
+function openPositionCellModal({ teamKey, position }) {
+  const rows = buildPositionMatrixRows();
+  const row = rows.find(r => r.key === teamKey);
+  if (!row) return;
+  const bucket = row.positions[position];
+  if (!bucket) return;
+
+  const playerRows = bucket.players.length
+    ? bucket.players.map(p => `
+        <tr>
+          <td>${escapeHtml(p.name)}</td>
+          <td class="num">${p.projected != null ? p.projected.toFixed(1) : '—'}</td>
+          <td class="num">${p.actual != null ? p.actual.toFixed(1) : '—'}</td>
+        </tr>`).join('')
+    : '<tr><td colspan="3" class="empty-note">No starters at this position.</td></tr>';
+
+  openModal({
+    title: `${row.teamName} — ${position}`,
+    subtitle: `Total: ${bucket.total.toFixed(1)}${bucket.allProjected && bucket.players.length ? ' (projected)' : ''}`,
+    bodyHtml: `<table><thead><tr><th>Player</th><th class="num">Proj</th><th class="num">Actual</th></tr></thead><tbody>${playerRows}</tbody></table>`,
+    color: row.leagueColor,
+  });
+}
+
+// ---------------------------------------------------------------------
 // Standings trend chart -- one line per team, X = week, Y = combined
 // rank (inverted, rank 1 at top). Built from `standingsHistory`
 // (weekly snapshots written server-side once each week completes).
@@ -486,8 +644,14 @@ function renderStandingsChart() {
     return;
   }
 
+  // ESPN's numeric team IDs are only unique *within* a league -- two
+  // different leagues can (and likely will) both have a team with id 1.
+  // Key everything by leagueColor:teamId instead of the raw id so teams
+  // from different leagues never collide/merge into one line.
+  const teamKey = s => `${s.leagueColor}:${s.teamId}`;
+
   const latestWeek = standingsHistory[standingsHistory.length - 1];
-  const teamIds = latestWeek.standings.map(s => s.teamId);
+  const teamIds = latestWeek.standings.map(teamKey);
   const totalTeams = teamIds.length;
 
   // Stable per-league color-shade assignment (sorted by teamId so it
@@ -501,7 +665,7 @@ function renderStandingsChart() {
   const teamMeta = {};
   latestWeek.standings.forEach(s => {
     const group = byLeagueColor[s.leagueColor] || [];
-    teamMeta[s.teamId] = {
+    teamMeta[teamKey(s)] = {
       name: s.teamName,
       lineColor: teamLineColor(s.leagueColor, group.indexOf(s.teamId), group.length),
     };
@@ -511,8 +675,9 @@ function renderStandingsChart() {
   teamIds.forEach(id => { seriesByTeam[id] = []; });
   standingsHistory.forEach(weekEntry => {
     weekEntry.standings.forEach(s => {
-      if (!seriesByTeam[s.teamId]) seriesByTeam[s.teamId] = [];
-      seriesByTeam[s.teamId].push({ week: weekEntry.week, rank: s.rank, pointsFor: s.pointsFor });
+      const key = teamKey(s);
+      if (!seriesByTeam[key]) seriesByTeam[key] = [];
+      seriesByTeam[key].push({ week: weekEntry.week, rank: s.rank, pointsFor: s.pointsFor });
     });
   });
 
@@ -626,13 +791,21 @@ function closeModal() {
   document.body.style.overflow = '';
 }
 
-function playerStatsFor(player, scoringPeriodId) {
+function playerPointsRaw(player, scoringPeriodId) {
   const stats = player.stats || [];
   const actual = stats.find(s => s.scoringPeriodId === scoringPeriodId && s.statSourceId === 0);
   const projected = stats.find(s => s.scoringPeriodId === scoringPeriodId && s.statSourceId === 1);
   return {
-    actual: actual ? actual.appliedTotal.toFixed(1) : '—',
-    projected: projected ? projected.appliedTotal.toFixed(1) : '—',
+    actual: actual ? actual.appliedTotal : null,
+    projected: projected ? projected.appliedTotal : null,
+  };
+}
+
+function playerStatsFor(player, scoringPeriodId) {
+  const { actual, projected } = playerPointsRaw(player, scoringPeriodId);
+  return {
+    actual: actual != null ? actual.toFixed(1) : '—',
+    projected: projected != null ? projected.toFixed(1) : '—',
   };
 }
 
@@ -845,6 +1018,17 @@ document.addEventListener('click', (e) => {
     openMatchupModal(matchupTrigger.dataset);
     return;
   }
+  const matrixFilterPill = e.target.closest('[data-matrix-filter]');
+  if (matrixFilterPill) {
+    matrixLeagueFilter = matrixFilterPill.dataset.matrixFilter;
+    renderPositionMatrix();
+    return;
+  }
+  const matrixCell = e.target.closest('.matrix-cell');
+  if (matrixCell) {
+    openPositionCellModal(matrixCell.dataset);
+    return;
+  }
   const chartEl = e.target.closest('#chartContainer [data-team-id]');
   if (chartEl) {
     toggleChartSelection(chartEl.dataset.teamId);
@@ -869,6 +1053,7 @@ async function loadDashboard() {
     leagues = payload.leagues || [];
     standingsHistory = payload.standingsHistory || [];
     renderAll();
+    renderPositionMatrix();
     renderStandingsChart();
     const el = document.getElementById('lastUpdated');
     el.textContent = payload.updatedAt
