@@ -87,7 +87,7 @@ This exists because ESPN's `rosterForCurrentScoringPeriod` field (used for the *
 The frontend is a single static `index.html` with no build step. It:
 - Fetches `DASHBOARD_API_URL` (the `getDashboard` endpoint above) on page load
 - Re-fetches every 5 minutes while the tab stays open, aligned to the backend's refresh cycle
-- Renders themed matchup cards per league and a combined, points-sorted standings table (rank, team, record, win%, total points, playoff odds)
+- Renders themed matchup cards per league and a combined, points-sorted standings table (rank, team, record, win%, total points, playoff odds). Rank always reflects each team's true cross-league position — a league filter (same self-activating pill pattern as Points by Position, below) narrows which rows are *visible* without renumbering them, since this table's whole point is the combined ranking.
 - Each league's banner shows "Week Projected" (combined projected points for the week), "Week Total" (combined actual points, appearing once any game in that league has started), and "Season Total" (sum of every team's season-to-date `pointsFor`)
 - Highlights the team currently leading a live matchup, and the winning side of a completed week, with a subtle background tint (matching the league's red/blue) behind its name and score
 - A small helmet icon next to each team name links out to that team's ESPN page; clicking the team name itself opens a modal (see below)
