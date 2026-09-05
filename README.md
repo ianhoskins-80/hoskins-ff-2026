@@ -152,9 +152,7 @@ Bump `BUILD_VERSION` on every deploy that changes `index.html`, before running `
 
 Currently active:
 - **League 1 (red):** "Sacking John Since Draft Day" — ID `566236785` — public
-
-Pending:
-- **League 2 (blue):** ID not yet available — manager hasn't made it public yet
+- **League 2 (blue):** "Hoskins: No Mercy, No Waivers" — ID `101181062` — public
 
 ### Adding a league
 
