@@ -12,7 +12,7 @@ const firestore = new Firestore();
 const SEASON = 2026;
 const LEAGUES = [
   { id: '566236785', color: 'red' },
-  // { id: 'PUT_LEAGUE_2_ID_HERE', color: 'blue' },
+  { id: '101181062', color: 'blue' },
 ];
 // ---------------------------------------------------------------------
 
