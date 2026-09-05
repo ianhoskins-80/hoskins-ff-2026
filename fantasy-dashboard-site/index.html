@@ -305,7 +305,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v6.3';
+const BUILD_VERSION = 'v6.4';
 document.getElementById('buildFooter').textContent = `Build ${BUILD_VERSION}`;
 
 let leagues = []; // populated from the API: [{ color, data }]
@@ -454,8 +454,8 @@ function renderMatchupsBlock(league, leagueIdx) {
     return acc;
   }, { projected: 0, accumulated: 0 });
   const seasonTotal = teams.reduce((sum, t) => sum + (t.record?.overall?.pointsFor ?? 0), 0);
-  const totalsLine = `Total Projected ${leagueTotals.projected.toFixed(1)}`
-    + (anyScores ? ` · Total So Far ${leagueTotals.accumulated.toFixed(1)}` : '')
+  const totalsLine = `Week Projected ${leagueTotals.projected.toFixed(1)}`
+    + (anyScores ? ` · Week Total ${leagueTotals.accumulated.toFixed(1)}` : '')
     + ` · Season Total ${seasonTotal.toFixed(1)}`;
 
   return `
