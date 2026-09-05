@@ -299,11 +299,12 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v5.2';
+const BUILD_VERSION = 'v6.0';
 document.getElementById('buildFooter').textContent = `Build ${BUILD_VERSION}`;
 
 let leagues = []; // populated from the API: [{ color, data }]
 let standingsHistory = []; // populated from the API: [{ week, snapshotAt, standings: [...] }]
+let rosterHistory = []; // populated from the API: [{ week, snapshotAt, teams: { "color:teamId": { teamName, leagueColor, players } } }]
 let selectedChartTeamIds = new Set(); // multi-select filter state for the standings chart
 let matrixLeagueFilter = 'all'; // 'all' or a league color -- row filter for the points-by-position matrix
 let matrixSelectedWeek = null; // null = always track the current week; a number once the user picks one explicitly
@@ -505,10 +506,31 @@ function renderAll() {
 // ESPN team id, since that id is only unique *within* one league (see
 // the same fix applied to the standings chart above).
 // ---------------------------------------------------------------------
-function buildPositionMatrixRows(week) {
+function currentWeekAcrossLeagues() {
+  return leagues[0]?.data?.status?.currentMatchupPeriod ?? 1;
+}
+
+// ESPN's `rosterForCurrentScoringPeriod` is only populated for whichever
+// week is presently active -- every other week's schedule entry comes
+// back empty (confirmed against the live API, not just "possibly
+// stale"). So a past week's roster can only come from our own
+// `rosterHistory` snapshots (see snapshotCurrentWeekRosters in the
+// backend), never from `leagues` itself. Returns null if no snapshot
+// was captured for that week (e.g. it predates this feature).
+function getRosterHistoryWeek(week) {
+  return rosterHistory.find(w => w.week === week) || null;
+}
+
+function emptyPositionBuckets() {
+  const positions = {};
+  POSITION_COLUMNS.forEach(p => { positions[p] = { total: 0, allProjected: true, players: [] }; });
+  return positions;
+}
+
+function buildPositionMatrixRowsLive(week) {
   const rows = [];
 
-  leagues.forEach((league, leagueIdx) => {
+  leagues.forEach((league) => {
     const { data, color } = league;
     const teams = data.teams || [];
     const weekGames = (data.schedule || []).filter(g => g.matchupPeriodId === week);
@@ -522,9 +544,7 @@ function buildPositionMatrixRows(week) {
         const entries = (sideData.rosterForCurrentScoringPeriod?.entries || []).filter(Boolean);
         const starters = entries.filter(e => e.lineupSlotId !== 20 && e.lineupSlotId !== 21);
 
-        const positions = {};
-        POSITION_COLUMNS.forEach(p => { positions[p] = { total: 0, allProjected: true, players: [] }; });
-
+        const positions = emptyPositionBuckets();
         starters.forEach(entry => {
           const player = entry.playerPoolEntry?.player || {};
           const posKey = POSITION_NAMES[player.defaultPositionId] || SLOT_NAMES[entry.lineupSlotId];
@@ -546,12 +566,34 @@ function buildPositionMatrixRows(week) {
     });
   });
 
-  rows.sort((a, b) => a.teamName.localeCompare(b.teamName));
   return rows;
 }
 
-function currentWeekAcrossLeagues() {
-  return leagues[0]?.data?.status?.currentMatchupPeriod ?? 1;
+function buildPositionMatrixRowsFromHistory(week) {
+  const weekEntry = getRosterHistoryWeek(week);
+  if (!weekEntry) return [];
+
+  return Object.entries(weekEntry.teams).map(([key, teamData]) => {
+    const positions = emptyPositionBuckets();
+    (teamData.players || []).forEach(p => {
+      if (p.slot !== 'starter') return;
+      const bucket = positions[p.position];
+      if (!bucket) return;
+      const value = p.actual != null ? p.actual : (p.projected != null ? p.projected : 0);
+      bucket.total += value;
+      if (p.actual != null) bucket.allProjected = false;
+      bucket.players.push({ name: p.name, actual: p.actual, projected: p.projected });
+    });
+    return { key, teamName: teamData.teamName, leagueColor: teamData.leagueColor, positions };
+  });
+}
+
+function buildPositionMatrixRows(week) {
+  const rows = week === currentWeekAcrossLeagues()
+    ? buildPositionMatrixRowsLive(week)
+    : buildPositionMatrixRowsFromHistory(week);
+  rows.sort((a, b) => a.teamName.localeCompare(b.teamName));
+  return rows;
 }
 
 function renderPositionMatrix() {
@@ -574,7 +616,10 @@ function renderPositionMatrix() {
     </select>`;
 
   if (!rows.length) {
-    container.innerHTML = `<div class="matrix-controls">${weekSelectHtml}</div><div class="empty-note">No matchups for that week.</div>`;
+    const message = effectiveWeek < currentWeek
+      ? `No roster snapshot was captured for Week ${effectiveWeek} (snapshots only cover weeks since this feature shipped).`
+      : 'No matchups for that week.';
+    container.innerHTML = `<div class="matrix-controls">${weekSelectHtml}</div><div class="empty-note">${message}</div>`;
     return;
   }
 
@@ -596,7 +641,7 @@ function renderPositionMatrix() {
   const filteredRows = filterActive ? rows.filter(r => r.leagueColor === matrixLeagueFilter) : rows;
 
   const caveatHtml = effectiveWeek < currentWeek
-    ? '<div class="matchup-caveat">Rosters reflect each team\'s current lineup, which may differ from who actually started this past week.</div>'
+    ? `<div class="matchup-caveat">From the Week ${effectiveWeek} roster snapshot, captured that week.</div>`
     : '';
 
   const headerCells = POSITION_COLUMNS.map(p => `<th class="num">${p}</th>`).join('');
@@ -887,6 +932,57 @@ function renderRosterBody(sideData, week) {
     </table>`;
 }
 
+// Parallel to rosterRow()/renderRosterBody() above, but sourced from our
+// own roster-history snapshot shape (already has position/team/points
+// resolved server-side) instead of ESPN's live rosterForCurrentScoringPeriod
+// shape -- used for any week that isn't the current one, since ESPN's live
+// data is empty for those (see getRosterHistoryWeek() for why).
+function rosterRowFromHistory(p) {
+  const injuryAbbr = INJURY_ABBR[p.injuryStatus];
+  const injuryBadge = injuryAbbr ? ` <span class="injury-badge" title="${escapeHtml(p.injuryStatus)}">${injuryAbbr}</span>` : '';
+  const projected = p.projected != null ? p.projected.toFixed(1) : '—';
+  const actual = p.actual != null ? p.actual.toFixed(1) : '—';
+  return `
+    <tr>
+      <td class="pos-cell">${escapeHtml(p.position || '—')}</td>
+      <td>${escapeHtml(p.name || 'Empty')}${injuryBadge}</td>
+      <td>${escapeHtml(p.nflTeam || '—')}</td>
+      <td class="num">${projected}</td>
+      <td class="num">${actual}</td>
+    </tr>`;
+}
+
+function renderRosterBodyFromHistory(teamData) {
+  if (!teamData) return '<div class="modal-empty">No roster snapshot available for this week.</div>';
+
+  const players = teamData.players || [];
+  const starters = players.filter(p => p.slot === 'starter').sort((a, b) => (a.lineupSlotId ?? 99) - (b.lineupSlotId ?? 99));
+  const bench = players.filter(p => p.slot === 'bench');
+  const ir = players.filter(p => p.slot === 'ir');
+
+  const section = (label, list) => list.length
+    ? `<tr class="modal-group-row"><td colspan="5">${label}</td></tr>${list.map(rosterRowFromHistory).join('')}`
+    : '';
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>Pos</th>
+          <th>Player</th>
+          <th>Team</th>
+          <th class="num">Proj</th>
+          <th class="num">Actual</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${section('Starters', starters)}
+        ${section('Bench', bench)}
+        ${section('IR', ir)}
+      </tbody>
+    </table>`;
+}
+
 function openRosterModal({ leagueIdx, matchupId, side }) {
   const league = leagues[Number(leagueIdx)];
   if (!league) return;
@@ -980,12 +1076,9 @@ function openHistoryModal({ leagueIdx, teamId, color }) {
 // matchup card (current week) or a week number in the score-history
 // modal (a past week).
 //
-// Caveat: `rosterForCurrentScoringPeriod` on a past week's schedule
-// entry reflects each team's *current* lineup, not necessarily who
-// actually started that week if rosters changed since -- each
-// player's own projected/actual points are still correct for that
-// week regardless (stats are keyed by scoringPeriodId), only the
-// "who was starting" grouping could be stale for past weeks.
+// Past weeks render from our own roster-history snapshots rather than
+// ESPN's live rosterForCurrentScoringPeriod, which is empty for any
+// week that isn't presently current (see getRosterHistoryWeek()).
 // ---------------------------------------------------------------------
 function matchupSideHeader(team, score, isWinner) {
   return `
@@ -995,21 +1088,30 @@ function matchupSideHeader(team, score, isWinner) {
     </div>`;
 }
 
-function renderMatchupComparisonBody(game, homeTeam, awayTeam, week, isPastWeek) {
+function renderMatchupComparisonBody(game, homeTeam, awayTeam, week, leagueColor, isPastWeek) {
   const homeScore = game.home?.totalPoints ?? 0;
   const awayScore = game.away?.totalPoints ?? 0;
   const homeWinner = homeScore > awayScore;
   const awayWinner = awayScore > homeScore;
-  const caveat = isPastWeek
-    ? '<div class="matchup-caveat">Rosters reflect each team\'s current lineup, which may differ from who actually started this past week.</div>'
-    : '';
+
+  let awayBody, homeBody, caveat;
+  if (isPastWeek) {
+    const weekEntry = getRosterHistoryWeek(week);
+    awayBody = renderRosterBodyFromHistory(weekEntry?.teams?.[`${leagueColor}:${game.away?.teamId}`]);
+    homeBody = renderRosterBodyFromHistory(weekEntry?.teams?.[`${leagueColor}:${game.home?.teamId}`]);
+    caveat = weekEntry ? `<div class="matchup-caveat">From the Week ${week} roster snapshot, captured that week.</div>` : '';
+  } else {
+    awayBody = renderRosterBody(game.away, week);
+    homeBody = renderRosterBody(game.home, week);
+    caveat = '';
+  }
 
   return `
     ${caveat}
     ${matchupSideHeader(awayTeam, awayScore, awayWinner)}
-    ${renderRosterBody(game.away, week)}
+    ${awayBody}
     ${matchupSideHeader(homeTeam, homeScore, homeWinner)}
-    ${renderRosterBody(game.home, week)}`;
+    ${homeBody}`;
 }
 
 function openMatchupModal({ leagueIdx, matchupId }) {
@@ -1026,7 +1128,7 @@ function openMatchupModal({ leagueIdx, matchupId }) {
   openModal({
     title: `${awayTeam ? awayTeam.name : 'TBD'} at ${homeTeam ? homeTeam.name : 'TBD'}`,
     subtitle: `Week ${week}`,
-    bodyHtml: renderMatchupComparisonBody(game, homeTeam, awayTeam, week, week < currentWeek),
+    bodyHtml: renderMatchupComparisonBody(game, homeTeam, awayTeam, week, league.color, week < currentWeek),
     color: league.color,
   });
 }
@@ -1088,6 +1190,7 @@ async function loadDashboard() {
     const payload = await res.json();
     leagues = payload.leagues || [];
     standingsHistory = payload.standingsHistory || [];
+    rosterHistory = payload.rosterHistory || [];
     renderAll();
     renderPositionMatrix();
     renderStandingsChart();

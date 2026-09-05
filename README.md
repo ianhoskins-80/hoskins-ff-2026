@@ -40,7 +40,7 @@ fantasy-dashboard-site/       Frontend: Firebase Hosting
 - Triggered by Cloud Scheduler; not meant to be called directly
 
 **`getDashboard`** — public
-- Returns the cached Firestore document (`leagues`, `updatedAt`) plus `standingsHistory` (every completed week's snapshot, see Firestore below) to the frontend
+- Returns the cached Firestore document (`leagues`, `updatedAt`) plus `standingsHistory` and `rosterHistory` (every week's snapshot of each, see Firestore below) to the frontend
 - URL: `https://us-central1-fantasy2026.cloudfunctions.net/getDashboard`
 - Falls back to a live ESPN fetch if no cache exists yet (first-run only)
 
@@ -73,6 +73,15 @@ The full ESPN response is stored (not a trimmed subset) because the frontend's "
 
 Written by comparing ESPN's `status.currentMatchupPeriod` on each fetch, not a calendar day — once it advances past `N`, week `N`'s season-to-date totals are final, so `refreshLeagues` (over)writes `standings-history/N` on every run until the period advances again. This makes it self-healing (a missed 5-min cycle doesn't lose a week) without needing to track "have I already snapshotted this week" as separate state. See `computeCombinedStandings()` / `snapshotStandingsIfWeekComplete()` in `index.js` — the ranking logic there is intentionally kept in sync with the frontend's Combined Standings sort.
 
+**`roster-history/{week}`** — one doc per NFL week, written by `refreshLeagues` on **every** run (not just once a week ends):
+- `week` — the week number
+- `snapshotAt` — ISO timestamp of the write
+- `teams` — `{ "leagueColor:teamId": { teamName, leagueColor, players: [{ name, position, nflTeam, injuryStatus, slot, lineupSlotId, actual, projected }] } }`, one entry per team, `players` covering every roster slot (starters, bench, IR)
+
+This exists because ESPN's `rosterForCurrentScoringPeriod` field (used for the *current* week everywhere else in this app) is **only populated for whichever week is presently active** — every other week's schedule entry comes back with zero roster entries. It's not stale data, it's genuinely empty. That means a past week's roster can only ever come from a snapshot taken *while that week was still current* — waiting until a week ends to capture it (the way `standings-history` does) would be too late, since ESPN's own data for it may already be gone by then. So this writes the **current** week's roster on every single 5-min cycle, overwriting `roster-history/{currentWeek}` each time; whatever was captured in the last cycle before the period advances becomes that week's permanent record. `buildRosterSnapshot()` in `index.js` stores a trimmed per-player record rather than ESPN's full nested stat blob, since that accumulates significantly over a season.
+
+**Limitation:** this can't backfill weeks that already happened before the feature was deployed — there's no way to retroactively snapshot a week ESPN itself has already emptied out.
+
 ## Frontend
 
 The frontend is a single static `index.html` with no build step. It:
@@ -99,14 +108,14 @@ Clicking a team name in the Combined Standings table opens that team's season hi
 
 Clicking the small "vs" glyph between the two teams on a matchup card, or a week number inside the score-history modal, opens a side-by-side comparison: both teams' full rosters (same Pos/Player/Team/Proj/Actual table as the roster lightbox) for that specific week, with the winning team's header tinted.
 
-For a past week, this shows a caveat note: `rosterForCurrentScoringPeriod` on a schedule entry reflects each team's *current* lineup, not necessarily who they actually started that historical week if they've made roster moves since. Each player's projected/actual points are still correct for that week regardless (stats are keyed by `scoringPeriodId`) — only the "who was starting" grouping could be stale. This isn't shown for the current week, where the lineup is accurate by definition.
+For the current week, rosters come live from `leagues`. For a past week, they come from that week's `roster-history` snapshot instead (see Firestore below) — a small note ("From the Week N roster snapshot...") marks this. If no snapshot exists for the requested week (it predates this feature, or a write failed), that side shows "No roster snapshot available for this week" rather than erroring or showing something misleading.
 
 ### Points by position
 
 Below "This Week's Matchups," a matrix table: one row per team (combined across leagues, sorted alphabetically by team name), one column per real position (QB/RB/WR/TE/D-ST/K/HC — a FLEX-WR counts under WR, not a separate FLEX column). Each cell is that position's summed **actual** points for the selected week (falls back to summed projected, shown in italics, before kickoff). Built entirely from the same per-game roster data already used by the roster lightbox — no backend changes.
 
 - **Week selector:** a dropdown above the table lists every week from 1 through the current one, defaulting to the current week. Picking a week is "sticky" across the page's 5-minute auto-refresh (it won't snap back to current on its own) until you pick "(Current)" again, which returns it to always tracking the live current week.
-- **Past-week caveat:** picking a week before the current one shows the same caveat as Matchup Comparison — `rosterForCurrentScoringPeriod` reflects each team's *current* lineup, not necessarily who actually started that historical week if they've made roster moves since. Points themselves are still correct for that week (they're keyed by `scoringPeriodId`); only the "who was starting" grouping could be stale.
+- **Past weeks come from `roster-history`:** the current week reads live roster data; any other week reads that week's snapshot instead (same as Matchup Comparison — see Firestore below for why this is necessary). If no snapshot exists for a requested week, the table shows an explicit "no snapshot" message rather than silently rendering nothing.
 - **Multi-player cells:** a team starting 2 RBs sums to one RB total; hovering a cell (native `title` tooltip) or clicking it (opens the shared modal, labeled with the selected week) shows the per-player breakdown behind that number.
 - **League filter:** pill buttons ("All Leagues" / each league by name) above the table filter which rows show. Only appears once more than one league has data — with a single league it'd just be a redundant "All" vs. itself, so it self-activates once League 2 joins rather than needing a code change.
 
