@@ -76,7 +76,7 @@ Written by comparing ESPN's `status.currentMatchupPeriod` on each fetch, not a c
 **`roster-history/{week}`** — one doc per NFL week, written by `refreshLeagues` on **every** run (not just once a week ends):
 - `week` — the week number
 - `snapshotAt` — ISO timestamp of the write
-- `teams` — `{ "leagueColor:teamId": { teamName, leagueColor, players: [{ name, position, nflTeam, injuryStatus, slot, lineupSlotId, actual, projected }] } }`, one entry per team, `players` covering every roster slot (starters, bench, IR)
+- `teams` — `{ "leagueColor:teamId": { teamName, owner, leagueColor, players: [{ name, position, nflTeam, injuryStatus, slot, lineupSlotId, actual, projected }] } }`, one entry per team, `players` covering every roster slot (starters, bench, IR). `owner` is stored in ESPN's raw casing — the frontend's `toTitleCase()` standardizes it at render time (see Points by position, below). Snapshots written before this field existed simply lack it; the frontend treats a missing `owner` as an empty string rather than erroring.
 
 This exists because ESPN's `rosterForCurrentScoringPeriod` field (used for the *current* week everywhere else in this app) is **only populated for whichever week is presently active** — every other week's schedule entry comes back with zero roster entries. It's not stale data, it's genuinely empty. That means a past week's roster can only ever come from a snapshot taken *while that week was still current* — waiting until a week ends to capture it (the way `standings-history` does) would be too late, since ESPN's own data for it may already be gone by then. So this writes the **current** week's roster on every single 5-min cycle, overwriting `roster-history/{currentWeek}` each time; whatever was captured in the last cycle before the period advances becomes that week's permanent record. `buildRosterSnapshot()` in `index.js` stores a trimmed per-player record rather than ESPN's full nested stat blob, since that accumulates significantly over a season.
 
@@ -114,12 +114,15 @@ For the current week, rosters come live from `leagues`. For a past week, they co
 
 ### Points by position
 
-Below "This Week's Matchups," a matrix table: one row per team (combined across leagues, sorted alphabetically by team name), one column per real position (QB/RB/WR/TE/D-ST/K/HC — a FLEX-WR counts under WR, not a separate FLEX column). Each cell is that position's summed **actual** points for the selected week (falls back to summed projected, shown in italics, before kickoff). Built entirely from the same per-game roster data already used by the roster lightbox — no backend changes.
+Below "This Week's Matchups," a matrix table: one row per team (combined across leagues, sorted alphabetically by team name), one column per real position (QB/RB/WR/TE/D-ST/K/HC — a FLEX-WR counts under WR, not a separate FLEX column). Each cell is that position's summed **actual** points for the selected week (falls back to summed projected, shown in italics, before kickoff). Built entirely from the same per-game roster data already used by the roster lightbox.
 
+- **Team owner:** each row's team name is followed by the manager's name, same treatment as Combined Standings (`memberName()` / `.team-owner`).
 - **Week selector:** a dropdown above the table lists every week from 1 through the current one, defaulting to the current week. Picking a week is "sticky" across the page's 5-minute auto-refresh (it won't snap back to current on its own) until you pick "(Current)" again, which returns it to always tracking the live current week.
 - **Past weeks come from `roster-history`:** the current week reads live roster data; any other week reads that week's snapshot instead (same as Matchup Comparison — see Firestore below for why this is necessary). If no snapshot exists for a requested week, the table shows an explicit "no snapshot" message rather than silently rendering nothing.
 - **Multi-player cells:** a team starting 2 RBs sums to one RB total; hovering a cell (native `title` tooltip) or clicking it (opens the shared modal, labeled with the selected week) shows the per-player breakdown behind that number.
 - **League filter:** pill buttons ("All Leagues" / each league by name) above the table filter which rows show. Only appears once more than one league has data — with a single league it'd just be a redundant "All" vs. itself, so it self-activates once League 2 joins rather than needing a code change.
+
+> **Manager name casing:** ESPN member names come back in whatever casing the person typed at sign-up (often all-caps). `memberName()` (frontend) runs every manager name through `toTitleCase()` before display, so "ADAM HOSKINS" and "adam hoskins" both render as "Adam Hoskins" everywhere a manager name appears (Combined Standings, Points by Position). The backend stores the raw ESPN casing in `roster-history`; only the frontend normalizes it, so there's one place to keep in sync if the rule ever changes.
 
 ### Standings trend chart
 
