@@ -339,7 +339,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v10.0';
+const BUILD_VERSION = 'v10.1';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -885,8 +885,7 @@ function openPositionTotalModal(position) {
   const filteredRows = filterMatrixRowsByLeague(rows, leagueColorsPresent);
   const { total, allProjected, players } = computePositionTotals(filteredRows, position);
 
-  // Highest points first, so the breakdown reads like a leaderboard.
-  const sortedPlayers = [...players].sort((a, b) => (b.actual ?? b.projected ?? 0) - (a.actual ?? a.projected ?? 0));
+  const sortedPlayers = [...players].sort((a, b) => a.teamName.localeCompare(b.teamName));
 
   const playerRows = sortedPlayers.length
     ? sortedPlayers.map(p => `
