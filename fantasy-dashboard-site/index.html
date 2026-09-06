@@ -146,6 +146,9 @@
   td.matrix-cell { cursor: pointer; }
   td.matrix-cell:hover { background: var(--line); }
   td.matrix-projected { font-style: italic; color: var(--text-dim); }
+  tr.matrix-total-row { font-weight: 700; border-top: 2px solid var(--line); }
+  tr.matrix-total-row td { background: var(--card); }
+  tr.matrix-total-row td.matrix-cell:hover { background: var(--line); }
 
   /* ---- standings trend chart ---- */
   .chart-wrap { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
@@ -336,7 +339,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v9.1';
+const BUILD_VERSION = 'v10.0';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -751,6 +754,31 @@ function buildPositionMatrixRows(week) {
   return rows;
 }
 
+// Shared by the render function (to know what's currently visible) and
+// the totals-row modal (to recompute the same set independently) --
+// keeps both in agreement about which teams the league filter has hidden.
+function filterMatrixRowsByLeague(rows, leagueColorsPresent) {
+  const filterActive = leagueColorsPresent.length > 1 && matrixLeagueFilter !== 'all';
+  return filterActive ? rows.filter(r => r.leagueColor === matrixLeagueFilter) : rows;
+}
+
+// Sums one position's column across every given row, and flattens every
+// contributing team's players into one list (each tagged with which team
+// it came from) for the "all teams" breakdown modal.
+function computePositionTotals(rows, position) {
+  let total = 0;
+  let allProjected = true;
+  const players = [];
+  rows.forEach(row => {
+    const bucket = row.positions[position];
+    if (!bucket || !bucket.players.length) return;
+    total += bucket.total;
+    if (!bucket.allProjected) allProjected = false;
+    bucket.players.forEach(p => players.push({ ...p, teamName: row.teamName, leagueColor: row.leagueColor }));
+  });
+  return { total, allProjected, players };
+}
+
 function renderPositionMatrix() {
   const container = document.getElementById('matrixContainer');
 
@@ -781,8 +809,7 @@ function renderPositionMatrix() {
   const leagueColorsPresent = sortedLeagueColors([...new Set(rows.map(r => r.leagueColor))]);
   const pillsHtml = renderLeagueFilterPills(leagueColorsPresent, matrixLeagueFilter, 'matrix-filter');
 
-  const filterActive = leagueColorsPresent.length > 1 && matrixLeagueFilter !== 'all';
-  const filteredRows = filterActive ? rows.filter(r => r.leagueColor === matrixLeagueFilter) : rows;
+  const filteredRows = filterMatrixRowsByLeague(rows, leagueColorsPresent);
 
   const caveatHtml = effectiveWeek < currentWeek
     ? `<div class="matchup-caveat">From the Week ${effectiveWeek} roster snapshot, captured that week.</div>`
@@ -802,13 +829,21 @@ function renderPositionMatrix() {
     return `<tr class="row-${row.leagueColor}"><td>${escapeHtml(row.teamName)}<span class="team-owner">${escapeHtml(row.owner)}</span></td>${cells}</tr>`;
   }).join('');
 
+  const totalCells = POSITION_COLUMNS.map(pos => {
+    const t = computePositionTotals(filteredRows, pos);
+    if (!t.players.length) return '<td class="num">—</td>';
+    const cls = t.allProjected ? 'matrix-cell matrix-total-cell matrix-projected' : 'matrix-cell matrix-total-cell';
+    return `<td class="num ${cls}" data-position="${pos}" title="Click for the full breakdown across all teams">${t.total.toFixed(1)}</td>`;
+  }).join('');
+  const totalRowHtml = `<tr class="matrix-total-row"><td>Total</td>${totalCells}</tr>`;
+
   container.innerHTML = `
     <div class="matrix-controls-row">${pillsHtml}${weekSelectHtml}</div>
     ${caveatHtml}
     <div class="matrix-scroll">
       <table>
         <thead><tr><th>Team</th>${headerCells}</tr></thead>
-        <tbody>${bodyRows}</tbody>
+        <tbody>${bodyRows}${totalRowHtml}</tbody>
       </table>
     </div>`;
 }
@@ -835,6 +870,39 @@ function openPositionCellModal({ teamKey, position }) {
     subtitle: `Week ${effectiveWeek} — Total: ${bucket.total.toFixed(1)}${bucket.allProjected && bucket.players.length ? ' (projected)' : ''}`,
     bodyHtml: `<table><thead><tr><th>Player</th><th class="num">Proj</th><th class="num">Actual</th></tr></thead><tbody>${playerRows}</tbody></table>`,
     color: row.leagueColor,
+  });
+}
+
+// Totals-row modal -- same idea as openPositionCellModal above, but
+// spans every (league-filter-visible) team instead of just one, so each
+// player row also names which team it came from. Recomputes from
+// scratch rather than reading anything cached from the last render, same
+// pattern as openPositionCellModal.
+function openPositionTotalModal(position) {
+  const effectiveWeek = matrixSelectedWeek != null ? matrixSelectedWeek : currentWeekAcrossLeagues();
+  const rows = buildPositionMatrixRows(effectiveWeek);
+  const leagueColorsPresent = [...new Set(rows.map(r => r.leagueColor))];
+  const filteredRows = filterMatrixRowsByLeague(rows, leagueColorsPresent);
+  const { total, allProjected, players } = computePositionTotals(filteredRows, position);
+
+  // Highest points first, so the breakdown reads like a leaderboard.
+  const sortedPlayers = [...players].sort((a, b) => (b.actual ?? b.projected ?? 0) - (a.actual ?? a.projected ?? 0));
+
+  const playerRows = sortedPlayers.length
+    ? sortedPlayers.map(p => `
+        <tr>
+          <td>${escapeHtml(p.name)}</td>
+          <td>${escapeHtml(p.teamName)}</td>
+          <td class="num">${p.projected != null ? p.projected.toFixed(1) : '—'}</td>
+          <td class="num">${p.actual != null ? p.actual.toFixed(1) : '—'}</td>
+        </tr>`).join('')
+    : '<tr><td colspan="4" class="empty-note">No starters at this position.</td></tr>';
+
+  openModal({
+    title: `All Teams — ${position}`,
+    subtitle: `Week ${effectiveWeek} — Total: ${total.toFixed(1)}${allProjected && sortedPlayers.length ? ' (projected)' : ''}`,
+    bodyHtml: `<table><thead><tr><th>Player</th><th>Team</th><th class="num">Proj</th><th class="num">Actual</th></tr></thead><tbody>${playerRows}</tbody></table>`,
+    color: null,
   });
 }
 
@@ -1443,6 +1511,11 @@ document.addEventListener('click', (e) => {
     chartLeagueFilter = chartFilterPill.dataset.chartFilter;
     selectedChartTeamIds.clear();
     renderStandingsChart();
+    return;
+  }
+  const matrixTotalCell = e.target.closest('.matrix-total-cell');
+  if (matrixTotalCell) {
+    openPositionTotalModal(matrixTotalCell.dataset.position);
     return;
   }
   const matrixCell = e.target.closest('.matrix-cell');
