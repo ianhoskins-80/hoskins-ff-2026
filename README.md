@@ -141,6 +141,12 @@ Below the standings table, a hand-rolled inline SVG line chart (no charting libr
 | Currently Playing / Yet to Play | Computed client-side from each team's starting lineup (`rosterForCurrentScoringPeriod.entries`, excluding bench/IR). A starter counts as "playing" if ESPN has posted an actual (non-projected) stats entry (`statSourceId === 0`). This is an inferred proxy, not an explicit ESPN field — worth re-validating against real in-season data. |
 | Mins Left | **Not implemented.** Hidden from the UI for now (the metric row is still in the DOM, just marked `hidden`, so it's a one-line change to bring back). ESPN's live game-clock data isn't currently pulled or parsed; needs either the `mLiveScoring` view or a separate live-scores data source. |
 
+### Onboarding tour
+
+A 5-slide walkthrough (`TOUR_STEPS` in `index.html`) auto-shows once per browser on first visit (tracked via `localStorage['ff-tour-seen-v1']`, so it's per-browser, not a real login) and is replayable anytime via the "What's New" link next to the build number in the footer. It reuses the shared modal component and illustrates each major feature (matchups, points by position, combined standings, standings trend) with made-up example teams/leagues rather than the viewer's real data, so it reads as generic illustration.
+
+Mockup content inside the tour uses dedicated `.tour-mockup-*` classes only — never the real interactive classes (`.roster-trigger`, etc.) — so nothing inside a tour slide can accidentally trigger the dashboard's real click handlers. Bump `TOUR_VERSION` (and its derived storage key) if a future redesign should re-show the tour to everyone once, without needing to clear anyone's `localStorage`.
+
 ### Versioning
 
 The dashboard displays its build number in a footer at the bottom of the page ("Build vX.Y"), sourced from the `BUILD_VERSION` constant near the top of the `<script>` block in `index.html`.
