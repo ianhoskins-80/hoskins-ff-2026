@@ -336,7 +336,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v9.0';
+const BUILD_VERSION = 'v9.1';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -456,12 +456,21 @@ function renderMatchupsBlock(league, leagueIdx) {
   const teams = data.teams || [];
   const schedule = data.schedule || [];
   const week = data.status?.currentMatchupPeriod ?? 1;
-  const weekGames = schedule.filter(g => g.matchupPeriodId === week);
+  const teamById = id => teams.find(t => t.id === id);
+  // Standardize card order within a league -- ascending alphabetical by
+  // home team name -- instead of ESPN's own schedule order, which is
+  // effectively arbitrary (matchup-id order, not anything meaningful here).
+  const weekGames = schedule
+    .filter(g => g.matchupPeriodId === week)
+    .sort((a, b) => {
+      const aName = teamById(a.home?.teamId)?.name || '';
+      const bName = teamById(b.home?.teamId)?.name || '';
+      return aName.localeCompare(bName);
+    });
   if (!weekGames.length) return '';
 
   const leagueUrl = `https://fantasy.espn.com/football/league?leagueId=${data.id}`;
   const leagueName = escapeHtml(data.settings?.name || 'League');
-  const teamById = id => teams.find(t => t.id === id);
   const teamUrl = teamId => `https://fantasy.espn.com/football/team?leagueId=${data.id}&teamId=${teamId}`;
   const anyScores = weekGames.some(g => (g.home?.totalPoints || 0) > 0 || (g.away?.totalPoints || 0) > 0);
 
