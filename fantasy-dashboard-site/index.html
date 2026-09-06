@@ -336,7 +336,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v8.0';
+const BUILD_VERSION = 'v8.1';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -518,6 +518,26 @@ function renderMatchupsBlock(league, leagueIdx) {
     </div>`;
 }
 
+// Looks up each league's display name, keyed by color -- shared by the
+// pill filters and the sort helper below, so both agree on what a
+// league is "named" for ordering/labeling purposes.
+function leagueNameLookup() {
+  const leagueNameByColor = {};
+  leagues.forEach(l => { leagueNameByColor[l.color] = l.data.settings?.name || l.color; });
+  return leagueNameByColor;
+}
+
+// Standardizes league order everywhere a league appears -- matchup
+// blocks and every pill filter -- as ascending alphabetical by league
+// name, rather than whatever order each section's own data happened to
+// produce (e.g. standings sorted by points, chart by team). Takes a
+// list of colors (already deduped) and returns them reordered.
+function sortedLeagueColors(colorsPresent) {
+  const leagueNameByColor = leagueNameLookup();
+  return [...colorsPresent].sort((a, b) =>
+    (leagueNameByColor[a] || a).localeCompare(leagueNameByColor[b] || b));
+}
+
 // Shared league-filter pill row, used by This Week's Matchups, Combined
 // Standings, Points by Position, and the standings chart. Self-activating:
 // returns '' (no pills at all) until more than one league actually has
@@ -525,8 +545,7 @@ function renderMatchupsBlock(league, leagueIdx) {
 // a code change anywhere that calls this.
 function renderLeagueFilterPills(colorsPresent, currentFilter, dataAttr) {
   if (colorsPresent.length <= 1) return '';
-  const leagueNameByColor = {};
-  leagues.forEach(l => { leagueNameByColor[l.color] = l.data.settings?.name || l.color; });
+  const leagueNameByColor = leagueNameLookup();
   const pills = ['all', ...colorsPresent].map(val => {
     const label = val === 'all' ? 'All Leagues' : escapeHtml(leagueNameByColor[val] || val);
     const selected = currentFilter === val ? 'selected' : '';
@@ -536,14 +555,16 @@ function renderLeagueFilterPills(colorsPresent, currentFilter, dataAttr) {
 }
 
 function renderAll() {
-  const matchupsColorsPresent = [...new Set(leagues.map(l => l.color))];
+  const matchupsColorsPresent = sortedLeagueColors([...new Set(leagues.map(l => l.color))]);
   const matchupsPillsHtml = renderLeagueFilterPills(matchupsColorsPresent, matchupsLeagueFilter, 'matchups-filter');
   const matchupsFilterActive = matchupsColorsPresent.length > 1 && matchupsLeagueFilter !== 'all';
   // Filter which league blocks render, but keep each league's *original*
   // index (leagueIdx) intact -- roster/matchup modals look teams up via
   // leagues[leagueIdx], so re-indexing a filtered subarray would break them.
-  const matchupsBlocksHtml = leagues
-    .map((league, i) => ({ league, i }))
+  // Display order follows matchupsColorsPresent (ascending by league name),
+  // same standardized order as the pill filters above.
+  const matchupsBlocksHtml = matchupsColorsPresent
+    .map(color => ({ league: leagues.find(l => l.color === color), i: leagues.findIndex(l => l.color === color) }))
     .filter(({ league }) => !matchupsFilterActive || league.color === matchupsLeagueFilter)
     .map(({ league, i }) => renderMatchupsBlock(league, i))
     .join('');
@@ -568,7 +589,7 @@ function renderAll() {
   // rather than re-numbering 1..N within just that league.
   allRows.forEach((row, i) => { row.rank = i + 1; });
 
-  const leagueColorsPresent = [...new Set(allRows.map(r => r.color))];
+  const leagueColorsPresent = sortedLeagueColors([...new Set(allRows.map(r => r.color))]);
   document.getElementById('standingsFilterContainer').innerHTML =
     renderLeagueFilterPills(leagueColorsPresent, standingsLeagueFilter, 'standings-filter');
 
@@ -730,7 +751,7 @@ function renderPositionMatrix() {
     return;
   }
 
-  const leagueColorsPresent = [...new Set(rows.map(r => r.leagueColor))];
+  const leagueColorsPresent = sortedLeagueColors([...new Set(rows.map(r => r.leagueColor))]);
   const pillsHtml = renderLeagueFilterPills(leagueColorsPresent, matrixLeagueFilter, 'matrix-filter');
 
   const filterActive = leagueColorsPresent.length > 1 && matrixLeagueFilter !== 'all';
@@ -856,7 +877,7 @@ function renderStandingsChart() {
   // always the true combined position.
   const leagueColorByKey = {};
   latestWeek.standings.forEach(s => { leagueColorByKey[teamKey(s)] = s.leagueColor; });
-  const chartColorsPresent = [...new Set(latestWeek.standings.map(s => s.leagueColor))];
+  const chartColorsPresent = sortedLeagueColors([...new Set(latestWeek.standings.map(s => s.leagueColor))]);
   const chartPillsHtml = renderLeagueFilterPills(chartColorsPresent, chartLeagueFilter, 'chart-filter');
   const chartFilterActive = chartColorsPresent.length > 1 && chartLeagueFilter !== 'all';
   const visibleTeamIds = chartFilterActive ? teamIds.filter(id => leagueColorByKey[id] === chartLeagueFilter) : teamIds;
