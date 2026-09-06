@@ -336,7 +336,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v8.1';
+const BUILD_VERSION = 'v9.0';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -419,9 +419,18 @@ const INJURY_ABBR = {
   DEACTIVATED: 'INACT',
 };
 
+// ESPN member names come back in whatever casing the user typed at
+// sign-up (often all-caps) -- standardize to one capital per word so
+// "ADAM HOSKINS" and "adam hoskins" both render as "Adam Hoskins".
+function toTitleCase(str) {
+  return (str || '').split(' ').filter(Boolean)
+    .map(w => w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
 function memberName(data, ownerId) {
   const m = (data.members || []).find(mm => mm.id === ownerId);
-  return m ? (m.firstName + ' ' + m.lastName) : '';
+  return m ? toTitleCase(m.firstName + ' ' + m.lastName) : '';
 }
 
 // Best-effort "has this player's real NFL game started/finished" check.
@@ -687,6 +696,7 @@ function buildPositionMatrixRowsLive(week) {
         rows.push({
           key: `${color}:${sideData.teamId}`,
           teamName: team ? team.name : 'TBD',
+          owner: team ? memberName(data, team.primaryOwner) : '',
           leagueColor: color,
           positions,
         });
@@ -712,7 +722,15 @@ function buildPositionMatrixRowsFromHistory(week) {
       if (p.actual != null) bucket.allProjected = false;
       bucket.players.push({ name: p.name, actual: p.actual, projected: p.projected });
     });
-    return { key, teamName: teamData.teamName, leagueColor: teamData.leagueColor, positions };
+    return {
+      key,
+      teamName: teamData.teamName,
+      // Snapshots taken before the owner field shipped won't have it --
+      // toTitleCase('') is just '', so the span renders empty rather than erroring.
+      owner: toTitleCase(teamData.owner || ''),
+      leagueColor: teamData.leagueColor,
+      positions,
+    };
   });
 }
 
@@ -772,7 +790,7 @@ function renderPositionMatrix() {
       const cls = bucket.allProjected ? 'matrix-cell matrix-projected' : 'matrix-cell';
       return `<td class="num ${cls}" data-team-key="${row.key}" data-position="${pos}" title="${escapeHtml(breakdown)}">${bucket.total.toFixed(1)}</td>`;
     }).join('');
-    return `<tr class="row-${row.leagueColor}"><td>${escapeHtml(row.teamName)}</td>${cells}</tr>`;
+    return `<tr class="row-${row.leagueColor}"><td>${escapeHtml(row.teamName)}<span class="team-owner">${escapeHtml(row.owner)}</span></td>${cells}</tr>`;
   }).join('');
 
   container.innerHTML = `

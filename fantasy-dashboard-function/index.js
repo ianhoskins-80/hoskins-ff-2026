@@ -31,6 +31,16 @@ async function fetchLeague(leagueId) {
   return res.json();
 }
 
+// Mirrors the frontend's memberName() in index.html -- duplicated here, like
+// POSITION_NAMES/SLOT_NAMES/PRO_TEAM_ABBR below, so the roster snapshot can
+// be built server-side. Stores the raw ESPN casing; the frontend applies
+// its own toTitleCase() at render time, so both live and snapshotted rows
+// get standardized casing from one place.
+function memberName(data, ownerId) {
+  const m = (data.members || []).find(mm => mm.id === ownerId);
+  return m ? (m.firstName + ' ' + m.lastName) : '';
+}
+
 // Mirrors the same lookup tables in the frontend (POSITION_NAMES/SLOT_NAMES/
 // PRO_TEAM_ABBR in index.html) -- duplicated here, like computeCombinedStandings
 // below, so the roster snapshot can be built server-side. Keep in sync.
@@ -150,6 +160,7 @@ function buildRosterSnapshot(results) {
 
         teamsOut[`${color}:${sideData.teamId}`] = {
           teamName: team ? team.name : 'TBD',
+          owner: team ? memberName(data, team.primaryOwner) : '',
           leagueColor: color,
           players,
         };
