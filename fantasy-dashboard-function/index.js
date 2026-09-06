@@ -66,6 +66,11 @@ function computeCombinedStandings(results) {
     const apf = a.team.record?.overall?.pointsFor ?? 0;
     const bpf = b.team.record?.overall?.pointsFor ?? 0;
     if (bpf !== apf) return bpf - apf;
+    // Mirrors the frontend's Combined Standings tiebreak -- see the comment
+    // there for why playoff odds comes before ESPN's currentProjectedRank.
+    const aPct = a.team.currentSimulationResults?.playoffPct ?? -1;
+    const bPct = b.team.currentSimulationResults?.playoffPct ?? -1;
+    if (bPct !== aPct) return bPct - aPct;
     return (a.team.currentProjectedRank ?? 99) - (b.team.currentProjectedRank ?? 99);
   });
 

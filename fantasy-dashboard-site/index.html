@@ -339,7 +339,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v10.1';
+const BUILD_VERSION = 'v10.2';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -601,6 +601,12 @@ function renderAll() {
     const apf = a.team.record?.overall?.pointsFor ?? 0;
     const bpf = b.team.record?.overall?.pointsFor ?? 0;
     if (bpf !== apf) return bpf - apf;
+    // pointsFor is tied for everyone before Week 1 kicks off -- break the
+    // tie by playoff odds (already shown as a column) rather than ESPN's
+    // opaque currentProjectedRank, so the order means something visible.
+    const aPct = a.team.currentSimulationResults?.playoffPct ?? -1;
+    const bPct = b.team.currentSimulationResults?.playoffPct ?? -1;
+    if (bPct !== aPct) return bPct - aPct;
     return (a.team.currentProjectedRank ?? 99) - (b.team.currentProjectedRank ?? 99);
   });
   // Assign each row its combined (cross-league) rank before filtering, so
