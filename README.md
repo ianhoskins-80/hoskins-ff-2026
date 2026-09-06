@@ -26,6 +26,7 @@ fantasy-dashboard-function/   Backend: Cloud Functions
 
 fantasy-dashboard-site/       Frontend: Firebase Hosting
   index.html                   The dashboard (single-page, no build step)
+  404.html                      Firebase's default not-found page (unmodified)
   firebase.json                 Hosting config
   .firebaserc                   Firebase project alias
 ```

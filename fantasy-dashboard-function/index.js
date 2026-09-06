@@ -5,9 +5,8 @@ const firestore = new Firestore();
 
 // ---------------------------------------------------------------------
 // LEAGUE CONFIG
-// This is the only thing you need to touch when the second league's
-// ID becomes available. Uncomment the second entry, fill in the ID,
-// then redeploy with the one-liner in DEPLOYMENT.md.
+// Add a { id, color } entry per league, then redeploy both functions
+// (see README.md's "Adding a league" and "Deployment" sections).
 // ---------------------------------------------------------------------
 const SEASON = 2026;
 const LEAGUES = [
