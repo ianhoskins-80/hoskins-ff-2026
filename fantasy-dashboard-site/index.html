@@ -339,7 +339,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v10.2';
+const BUILD_VERSION = 'v10.3';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -631,7 +631,7 @@ function renderAll() {
     const winPct = gamesPlayed > 0 ? Math.round(((rec.wins + (rec.ties || 0) * 0.5) / gamesPlayed) * 100) + '%' : '—';
     const pf = rec ? rec.pointsFor.toFixed(1) : '0.0';
     const playoffPct = t.currentSimulationResults?.playoffPct;
-    const pctStr = playoffPct != null ? Math.round(playoffPct * 100) + '%' : '—';
+    const pctStr = playoffPct != null ? (playoffPct * 100).toFixed(2) + '%' : '—';
     const owner = memberName(row.data, t.primaryOwner);
     return `
       <tr class="row-${row.color}">
