@@ -164,6 +164,7 @@
   .chart-axis-label { fill: var(--text-dim); font-size: 9px; }
   .chart-axis-title { fill: var(--text-dim); font-size: 10px; letter-spacing: 0.4px; }
   .chart-gridline { stroke: var(--line); stroke-width: 1; }
+  .chart-gridline-h { stroke: var(--line); stroke-width: 1; opacity: 0.4; }
   .chart-wrap.has-selection .chart-line:not(.selected) { display: none; }
   .chart-wrap.has-selection .chart-point:not(.selected) { display: none; }
   .chart-wrap.has-selection .chart-line.selected { stroke-width: 3; }
@@ -345,7 +346,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v11.1';
+const BUILD_VERSION = 'v11.2';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -1015,9 +1016,9 @@ function renderStandingsChart() {
   }
   gridSvg += `<text class="chart-axis-title" x="${padL + plotW / 2}" y="${H - 4}" text-anchor="middle">Week</text>`;
 
-  const rankStep = totalTeams > 12 ? 2 : 1;
   let yLabelsSvg = '';
-  for (let r = 1; r <= totalTeams; r += rankStep) {
+  for (let r = 1; r <= totalTeams; r++) {
+    gridSvg += `<line class="chart-gridline-h" x1="${padL}" y1="${yForRank(r)}" x2="${padL + plotW}" y2="${yForRank(r)}"></line>`;
     yLabelsSvg += `<text class="chart-axis-label" x="${padL - 8}" y="${yForRank(r) + 3}" text-anchor="end">${r}</text>`;
   }
   const yTitleX = 12;
