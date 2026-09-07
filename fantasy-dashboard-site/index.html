@@ -141,6 +141,12 @@
   }
   .filter-pill:hover { border-color: var(--text-dim); }
   .filter-pill.selected { color: var(--text); border-color: var(--text); background: var(--line); }
+  .filter-pill.pill-red { border-color: var(--red); color: var(--red); }
+  .filter-pill.pill-red:hover { background: var(--red-tint); }
+  .filter-pill.pill-red.selected { background: var(--red-tint-strong); border-color: var(--red); color: var(--red); }
+  .filter-pill.pill-blue { border-color: var(--blue); color: var(--blue); }
+  .filter-pill.pill-blue:hover { background: var(--blue-tint); }
+  .filter-pill.pill-blue.selected { background: var(--blue-tint-strong); border-color: var(--blue); color: var(--blue); }
   .matrix-scroll { overflow-x: auto; }
   .matrix-scroll table { min-width: 560px; }
   td.matrix-cell { cursor: pointer; }
@@ -339,7 +345,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v11.0';
+const BUILD_VERSION = 'v11.1';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -570,7 +576,8 @@ function renderLeagueFilterPills(colorsPresent, currentFilter, dataAttr) {
   const pills = ['all', ...colorsPresent].map(val => {
     const label = val === 'all' ? 'All Leagues' : escapeHtml(leagueNameByColor[val] || val);
     const selected = currentFilter === val ? 'selected' : '';
-    return `<button type="button" class="filter-pill ${selected}" data-${dataAttr}="${val}">${label}</button>`;
+    const colorClass = val === 'all' ? '' : `pill-${val}`;
+    return `<button type="button" class="filter-pill ${colorClass} ${selected}" data-${dataAttr}="${val}">${label}</button>`;
   }).join('');
   return `<div class="filter-pills">${pills}</div>`;
 }
