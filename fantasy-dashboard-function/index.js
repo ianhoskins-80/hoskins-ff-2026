@@ -112,6 +112,38 @@ async function snapshotStandingsIfWeekComplete(results) {
   }
 }
 
+// One-time seed of a "Week 0" (preseason) standings-history snapshot, so
+// the frontend's rank-trend chart has a starting point instead of only
+// beginning once Week 1 wraps up. Captured with the exact same ranking
+// logic as every other week (computeCombinedStandings) -- before any
+// game has posted a score, pointsFor ties at 0 for everyone and the
+// order falls out of that function's own playoff-odds tiebreak, which is
+// exactly the "preseason ranking" this is meant to capture.
+//
+// Written once and never touched again (guarded by both the doc-exists
+// check and completedWeek < 1), unlike every other snapshot in this file
+// which intentionally overwrites on every run -- once Week 1 actually
+// wraps up, pointsFor stops being all-zero and doc 0 would no longer
+// represent "preseason" if it kept refreshing.
+async function seedPreseasonStandingsSnapshot(results) {
+  const currentWeek = results[0]?.data?.status?.currentMatchupPeriod ?? 1;
+  const completedWeek = currentWeek - 1;
+  if (completedWeek >= 1) return;
+
+  const ref = firestore.collection('standings-history').doc('0');
+  const existing = await ref.get();
+  if (existing.exists) return;
+
+  const standings = computeCombinedStandings(results);
+  if (!standings.length) return;
+
+  try {
+    await ref.set({ week: 0, snapshotAt: new Date().toISOString(), standings });
+  } catch (err) {
+    console.error('Failed to seed preseason standings snapshot:', err.message);
+  }
+}
+
 // Snapshots every team's roster for the CURRENT week, every single run --
 // unlike snapshotStandingsIfWeekComplete (which snapshots the week that
 // just ended), this can't wait until a week is over to capture it.
@@ -209,6 +241,7 @@ async function refreshAllLeagues() {
   });
 
   await snapshotStandingsIfWeekComplete(results);
+  await seedPreseasonStandingsSnapshot(results);
   await snapshotCurrentWeekRosters(results);
 
   return results;
