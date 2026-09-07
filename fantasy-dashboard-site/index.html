@@ -339,7 +339,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v10.3';
+const BUILD_VERSION = 'v11.0';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -993,11 +993,18 @@ function renderStandingsChart() {
   const xForWeek = w => weeks.length > 1 ? padL + ((w - minWeek) / (maxWeek - minWeek)) * plotW : padL + plotW / 2;
   const yForRank = r => padT + ((r - 1) / Math.max(1, totalTeams - 1)) * plotH;
 
+  // Week 0 is the seeded preseason snapshot (see seedPreseasonStandingsSnapshot
+  // in the backend) -- label it "Pre" on the axis and "Preseason" in point
+  // tooltips rather than the literal week number, since there's no actual
+  // NFL "Week 0" and a bare 0 would read as a typo next to 1, 2, 3...
+  const weekAxisLabel = w => w === 0 ? 'Pre' : String(w);
+  const weekTooltipLabel = w => w === 0 ? 'Preseason' : `Week ${w}`;
+
   let gridSvg = '';
   for (let w = minWeek; w <= maxWeek; w++) {
     const x = xForWeek(w);
     gridSvg += `<line class="chart-gridline" x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}"></line>`;
-    gridSvg += `<text class="chart-axis-label" x="${x}" y="${padT + plotH + 14}" text-anchor="middle">${w}</text>`;
+    gridSvg += `<text class="chart-axis-label" x="${x}" y="${padT + plotH + 14}" text-anchor="middle">${weekAxisLabel(w)}</text>`;
   }
   gridSvg += `<text class="chart-axis-title" x="${padL + plotW / 2}" y="${H - 4}" text-anchor="middle">Week</text>`;
 
@@ -1019,7 +1026,7 @@ function renderStandingsChart() {
     const pointsAttr = series.map(p => `${xForWeek(p.week)},${yForRank(p.rank)}`).join(' ');
     linesSvg += `<polyline class="chart-line" data-team-id="${id}" points="${pointsAttr}" stroke="${meta.lineColor}"></polyline>`;
     series.forEach(p => {
-      pointsSvg += `<circle class="chart-point" data-team-id="${id}" cx="${xForWeek(p.week)}" cy="${yForRank(p.rank)}" r="3" fill="${meta.lineColor}"><title>${escapeHtml(meta.name)} — Week ${p.week}: Rank ${p.rank}, ${p.pointsFor.toFixed(1)} pts</title></circle>`;
+      pointsSvg += `<circle class="chart-point" data-team-id="${id}" cx="${xForWeek(p.week)}" cy="${yForRank(p.rank)}" r="3" fill="${meta.lineColor}"><title>${escapeHtml(meta.name)} — ${weekTooltipLabel(p.week)}: Rank ${p.rank}, ${p.pointsFor.toFixed(1)} pts</title></circle>`;
     });
   });
 
