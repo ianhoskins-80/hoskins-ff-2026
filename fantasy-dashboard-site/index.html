@@ -356,7 +356,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v13.0';
+const BUILD_VERSION = 'v14.0';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -1305,12 +1305,27 @@ function playerStatsFor(player, scoringPeriodId) {
   };
 }
 
+// Per-player kickoff time in the roster modal, from gameStatus.date (see
+// fetchNflGameStatus in the backend). Only meaningful for the CURRENT
+// week -- gameStatus reflects the live scoreboard, not history, so
+// rosterRowFromHistory (past weeks) doesn't show a Game column at all.
+// Formatted in the viewer's own local timezone rather than a hardcoded
+// one, since ESPN's own preformatted strings shift to "Final" / "Q2
+// 5:26" once a game starts, which isn't useful as a stable kickoff time.
+function gameTimeLabel(nflTeamAbbr) {
+  const date = nflTeamAbbr ? gameStatus[nflTeamAbbr]?.date : null;
+  if (!date) return '—';
+  return new Date(date).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+}
+
 function rosterRow(entry, week) {
   // entry.playerPoolEntry (or the player within it) can be missing for an
   // unfilled roster slot -- fall back to placeholder text rather than erroring.
   const player = entry?.playerPoolEntry?.player || {};
   const pos = POSITION_NAMES[player.defaultPositionId] || SLOT_NAMES[entry?.lineupSlotId] || '—';
-  const nflTeam = PRO_TEAM_ABBR[player.proTeamId] ?? '—';
+  const nflTeamAbbr = PRO_TEAM_ABBR[player.proTeamId];
+  const nflTeam = nflTeamAbbr ?? '—';
+  const gameTime = gameTimeLabel(nflTeamAbbr);
   const { projected, actual } = playerStatsFor(player, week);
   const injuryAbbr = INJURY_ABBR[player.injuryStatus];
   const injuryBadge = injuryAbbr ? ` <span class="injury-badge" title="${escapeHtml(player.injuryStatus)}">${injuryAbbr}</span>` : '';
@@ -1319,6 +1334,7 @@ function rosterRow(entry, week) {
       <td class="pos-cell">${escapeHtml(pos)}</td>
       <td>${escapeHtml(player.fullName || 'Empty')}${injuryBadge}</td>
       <td>${escapeHtml(nflTeam)}</td>
+      <td>${escapeHtml(gameTime)}</td>
       <td class="num">${projected}</td>
       <td class="num">${actual}</td>
     </tr>`;
@@ -1332,7 +1348,7 @@ function renderRosterBody(sideData, week) {
   const ir = entries.filter(e => e.lineupSlotId === 21);
 
   const section = (label, list) => list.length
-    ? `<tr class="modal-group-row"><td colspan="5">${label}</td></tr>${list.map(e => rosterRow(e, week)).join('')}`
+    ? `<tr class="modal-group-row"><td colspan="6">${label}</td></tr>${list.map(e => rosterRow(e, week)).join('')}`
     : '';
 
   return `
@@ -1342,6 +1358,7 @@ function renderRosterBody(sideData, week) {
           <th>Pos</th>
           <th>Player</th>
           <th>Team</th>
+          <th>Game</th>
           <th class="num">Proj</th>
           <th class="num">Actual</th>
         </tr>

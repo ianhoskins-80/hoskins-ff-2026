@@ -65,7 +65,7 @@ gcloud scheduler jobs run refresh-fantasy-leagues --location=us-central1 --proje
 **`fantasy-dashboard/latest`** — single document, overwritten every 5 minutes:
 - `leagues` — array of `{ color, data }`, where `data` is the **full, untrimmed** ESPN league response
 - `liveScoring` — the Live Scoring board, see below
-- `gameStatus` — `{ [nflTeamAbbr]: { state: 'pre'|'in'|'post', secondsRemaining } }`, one entry per NFL team from the public scoreboard API (see Live Scoring, below) — also drives the matchup-card Currently Playing / Yet to Play / Mins Left metrics
+- `gameStatus` — `{ [nflTeamAbbr]: { state: 'pre'|'in'|'post', secondsRemaining, date } }`, one entry per NFL team from the public scoreboard API (see Live Scoring, below) — also drives the matchup-card Currently Playing / Yet to Play / Mins Left metrics and the roster modal's per-player game time
 - `updatedAt` — ISO timestamp
 
 The full ESPN response is stored (not a trimmed subset) because the frontend's "Currently Playing" / "Yet to Play" metrics depend on per-player roster data only present there. Don't trim this payload without checking whether the frontend still needs those fields.
@@ -109,9 +109,11 @@ All of the popups below share one modal component (`#modalBackdrop` / `#modalDia
 
 ### Roster lightbox
 
-Clicking a team name in a matchup card opens a modal listing that team's roster for the current week — position, player, NFL team, projected points, and actual points, grouped into Starters / Bench / IR. A player flagged by ESPN as questionable, out, etc. gets a small abbreviated badge next to their name (Q, D, O, IR, DTD, SUSP, P, INACT).
+Clicking a team name in a matchup card opens a modal listing that team's roster for the current week — position, player, NFL team, kickoff time, projected points, and actual points, grouped into Starters / Bench / IR. A player flagged by ESPN as questionable, out, etc. gets a small abbreviated badge next to their name (Q, D, O, IR, DTD, SUSP, P, INACT).
 
 Player position, roster slot, and NFL team are resolved from ESPN's undocumented-but-stable numeric ID tables (`POSITION_NAMES`, `SLOT_NAMES`, `PRO_TEAM_ABBR` near the top of the `<script>` block). If ESPN adds a new slot type, the lookup falls back to `—` rather than erroring — extend the relevant map if a new ID shows up.
+
+**Game time:** each player's row shows their NFL team's kickoff time (`gameTimeLabel()`), from `gameStatus[nflTeam].date` (see Live Scoring, below) — a stable ISO timestamp from the scoreboard API, formatted in the *viewer's own local timezone*, not a hardcoded one. Deliberately uses the raw kickoff `date` rather than ESPN's own preformatted status strings, since those shift to "Final" or "Q2 5:26" once a game starts, which wouldn't stay a useful "when do they play" answer. Only shown for the current week — `gameStatus` reflects live data, not history, so the Week-N-snapshot version of this modal (`rosterRowFromHistory`, for past weeks) doesn't have a Game column.
 
 ### Score history
 
@@ -127,7 +129,7 @@ For the current week, rosters come live from `leagues`. For a past week, they co
 
 Above "Points by Position," a leaderboard of every rostered **starter** (bench/IR excluded) whose real NFL team is currently mid-game and who has **actually scored** (a scoreless-but-playing starter doesn't show) — `Team — Position Player — Points`, sorted highest points first. Entirely self-hiding: the whole section, heading included, disappears when nobody rostered is currently playing, which is the common case most of the week.
 
-"Currently mid-game" comes from a **second, separate ESPN API** — the public NFL scoreboard (`site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard`, unauthenticated, distinct from the fantasy API used everywhere else in this app) — cross-referenced against each player's `proTeamId` (via `PRO_TEAM_ABBR`) to check whether their team's game `status.type.state` is `'in'`. This is a real live/finished/upcoming signal, unlike the fantasy API's own per-player stats, which only say whether ESPN has posted *any* stat for a player this week — that doesn't distinguish a game still in progress from one that already ended. See `fetchNflGameStatus()` in `index.js` — the same per-team status (and remaining game clock) it returns also drives the matchup-card Currently Playing / Yet to Play / Mins Left metrics (below), so there's one scoreboard fetch per refresh cycle, not one per feature.
+"Currently mid-game" comes from a **second, separate ESPN API** — the public NFL scoreboard (`site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard`, unauthenticated, distinct from the fantasy API used everywhere else in this app) — cross-referenced against each player's `proTeamId` (via `PRO_TEAM_ABBR`) to check whether their team's game `status.type.state` is `'in'`. This is a real live/finished/upcoming signal, unlike the fantasy API's own per-player stats, which only say whether ESPN has posted *any* stat for a player this week — that doesn't distinguish a game still in progress from one that already ended. See `fetchNflGameStatus()` in `index.js` — the same per-team status (remaining game clock and kickoff time) it returns also drives the matchup-card Currently Playing / Yet to Play / Mins Left metrics and the roster modal's per-player game time (both below), so there's one scoreboard fetch per refresh cycle, not one per feature.
 
 A small green dot next to a player's name means they scored in the last 5-minute refresh — compares this cycle's points to the previous cycle's, stored in `fantasy-dashboard/live-scoring-prev` (see Firestore above), since a Cloud Function doesn't retain memory between invocations and the indicator is meant to track the backend's own refresh cadence, not "since this browser tab last polled."
 
