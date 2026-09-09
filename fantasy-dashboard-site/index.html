@@ -21,6 +21,7 @@
     --blue-tint-strong: rgba(63, 127, 214, 0.28);
 
     --warn: #d6a13f;
+    --live: #34c77b;
   }
   * { box-sizing: border-box; }
   body {
@@ -254,6 +255,10 @@
     border: 1px solid var(--warn); border-radius: 3px; padding: 0 3px; margin-left: 4px;
     vertical-align: middle; line-height: 1.4;
   }
+  .just-scored-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--live); margin-left: 6px; vertical-align: middle;
+  }
   .modal-group-row td {
     padding: 10px 12px 4px; font-size: 10px; text-transform: uppercase;
     letter-spacing: 0.6px; color: var(--text-dim); border-bottom: none;
@@ -296,6 +301,11 @@
 
   <h2 class="section-title">This Week's Matchups</h2>
   <div id="matchupsContainer"></div>
+
+  <section id="liveScoringSection" hidden>
+    <h2 class="section-title">Live Scoring</h2>
+    <div id="liveScoringContainer"></div>
+  </section>
 
   <h2 class="section-title">Points by Position</h2>
   <div id="matrixContainer"></div>
@@ -346,7 +356,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v11.2';
+const BUILD_VERSION = 'v12.0';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -365,11 +375,13 @@ setTimeout(() => {
 let leagues = []; // populated from the API: [{ color, data }]
 let standingsHistory = []; // populated from the API: [{ week, snapshotAt, standings: [...] }]
 let rosterHistory = []; // populated from the API: [{ week, snapshotAt, teams: { "color:teamId": { teamName, leagueColor, players } } }]
+let liveScoring = []; // populated from the API: [{ playerId, playerName, position, teamName, leagueColor, points, justScored }]
 let selectedChartTeamIds = new Set(); // multi-select filter state for the standings chart
 let matrixLeagueFilter = 'all'; // 'all' or a league color -- row filter for the points-by-position matrix
 let standingsLeagueFilter = 'all'; // 'all' or a league color -- row filter for Combined Standings
 let matchupsLeagueFilter = 'all'; // 'all' or a league color -- which league blocks show in This Week's Matchups
 let chartLeagueFilter = 'all'; // 'all' or a league color -- which teams' lines show in the standings chart
+let liveScoringLeagueFilter = 'all'; // 'all' or a league color -- row filter for Live Scoring
 let matrixSelectedWeek = null; // null = always track the current week; a number once the user picks one explicitly
 
 // ESPN-sourced strings (team names, league names, owner names) are
@@ -581,6 +593,46 @@ function renderLeagueFilterPills(colorsPresent, currentFilter, dataAttr) {
     return `<button type="button" class="filter-pill ${colorClass} ${selected}" data-${dataAttr}="${val}">${label}</button>`;
   }).join('');
   return `<div class="filter-pills">${pills}</div>`;
+}
+
+// Live Scoring -- every rostered starter whose real NFL team is currently
+// mid-game and who has actually scored, sorted highest points first (see
+// buildLiveScoringBoard in the backend). Self-hides the whole section
+// (heading included, via the `hidden` attribute on #liveScoringSection)
+// whenever the list is empty -- unlike every other section on the page,
+// which keeps its heading visible even with nothing under it -- since
+// "no one rostered is currently playing" is the common case most of the
+// week, not an edge case worth a permanent empty-state message.
+function renderLiveScoringBoard() {
+  const section = document.getElementById('liveScoringSection');
+  if (!liveScoring.length) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+
+  const colorsPresent = sortedLeagueColors([...new Set(liveScoring.map(p => p.leagueColor))]);
+  const pillsHtml = renderLeagueFilterPills(colorsPresent, liveScoringLeagueFilter, 'live-scoring-filter');
+  const filterActive = colorsPresent.length > 1 && liveScoringLeagueFilter !== 'all';
+  const filteredPlayers = filterActive ? liveScoring.filter(p => p.leagueColor === liveScoringLeagueFilter) : liveScoring;
+
+  const rowsHtml = filteredPlayers.map(p => {
+    const positionLabel = p.position ? escapeHtml(p.position) + ' ' : '';
+    const dot = p.justScored ? '<span class="just-scored-dot" title="Scored in the last update"></span>' : '';
+    return `
+      <tr class="row-${p.leagueColor}">
+        <td>${escapeHtml(p.teamName)}</td>
+        <td>${positionLabel}${escapeHtml(p.playerName)}${dot}</td>
+        <td class="num">${p.points.toFixed(1)}</td>
+      </tr>`;
+  }).join('');
+
+  document.getElementById('liveScoringContainer').innerHTML = `
+    ${pillsHtml}
+    <table>
+      <thead><tr><th>Team</th><th>Player</th><th class="num">Points</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>`;
 }
 
 function renderAll() {
@@ -1533,6 +1585,12 @@ document.addEventListener('click', (e) => {
     renderStandingsChart();
     return;
   }
+  const liveScoringFilterPill = e.target.closest('[data-live-scoring-filter]');
+  if (liveScoringFilterPill) {
+    liveScoringLeagueFilter = liveScoringFilterPill.dataset.liveScoringFilter;
+    renderLiveScoringBoard();
+    return;
+  }
   const matrixTotalCell = e.target.closest('.matrix-total-cell');
   if (matrixTotalCell) {
     openPositionTotalModal(matrixTotalCell.dataset.position);
@@ -1574,9 +1632,11 @@ async function loadDashboard() {
     leagues = payload.leagues || [];
     standingsHistory = payload.standingsHistory || [];
     rosterHistory = payload.rosterHistory || [];
+    liveScoring = payload.liveScoring || [];
     renderAll();
     renderPositionMatrix();
     renderStandingsChart();
+    renderLiveScoringBoard();
     const el = document.getElementById('lastUpdated');
     el.textContent = payload.updatedAt
       ? 'Last updated ' + new Date(payload.updatedAt).toLocaleTimeString()
