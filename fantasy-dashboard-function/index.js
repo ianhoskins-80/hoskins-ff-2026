@@ -46,14 +46,15 @@ function secondsRemainingInGame(period, clockSeconds) {
 // Public, unauthenticated ESPN scoreboard -- a *different* ESPN API than
 // the fantasy one above (site.api.espn.com, not lm-api-reads.fantasy).
 // This is what actually knows whether an NFL game is live right now
-// (status.type.state: 'pre' | 'in' | 'post') and how much game clock is
-// left; the fantasy API's own per-player stats only tell you whether
-// ESPN has posted *any* stat for a player this week, which doesn't
-// distinguish a game still in progress from one that already ended, and
-// carries no clock data at all. Returns one status per NFL team
-// abbreviation (both sides of every game get the same status), used by
-// both Live Scoring and the matchup-card metrics (Currently Playing /
-// Yet to Play / Mins Left) so there's a single scoreboard fetch per
+// (status.type.state: 'pre' | 'in' | 'post'), how much game clock is
+// left, and when it kicks off (event.date); the fantasy API's own
+// per-player stats only tell you whether ESPN has posted *any* stat for
+// a player this week, which doesn't distinguish a game still in progress
+// from one that already ended, and carries no schedule/clock data at
+// all. Returns one status per NFL team abbreviation (both sides of every
+// game get the same status), used by Live Scoring, the matchup-card
+// metrics (Currently Playing / Yet to Play / Mins Left), and the roster
+// modal's per-player game time, so there's a single scoreboard fetch per
 // refresh cycle, not one per feature.
 async function fetchNflGameStatus(week) {
   try {
@@ -69,9 +70,10 @@ async function fetchNflGameStatus(week) {
       const period = event.status?.period ?? 0;
       const clockSeconds = event.status?.clock ?? 0;
       const secondsRemaining = state === 'in' ? secondsRemainingInGame(period, clockSeconds) : null;
+      const date = event.date || null; // ISO kickoff time -- stays put once the game starts/ends, unlike state/clock
       const competitors = event.competitions?.[0]?.competitors || [];
       competitors.forEach(c => {
-        if (c.team?.abbreviation) statusByTeam[c.team.abbreviation] = { state, secondsRemaining };
+        if (c.team?.abbreviation) statusByTeam[c.team.abbreviation] = { state, secondsRemaining, date };
       });
     });
     return statusByTeam;
