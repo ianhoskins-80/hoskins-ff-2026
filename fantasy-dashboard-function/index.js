@@ -456,6 +456,14 @@ const PRESENCE_TIMEOUT_MS = 90 * 1000;
 functions.http('heartbeat', async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  // Unlike getDashboard (a plain GET with no custom headers -- a CORS
+  // "simple request" that never triggers a preflight), this is a POST
+  // with a Content-Type header set, which does trigger one. The browser
+  // sends an OPTIONS preflight asking to allow that header before it'll
+  // let the real POST through, so it has to be explicitly echoed back
+  // here -- without this, every real browser call fails CORS even
+  // though a plain curl (no preflight) looks fine.
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
     res.status(204).send('');
     return;
