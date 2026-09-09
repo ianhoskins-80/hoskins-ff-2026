@@ -283,6 +283,8 @@
   .live-scoring-more button { font-size: 12px; background: var(--line); color: var(--text); border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; }
   .live-scoring-more button:hover { background: var(--text-dim); color: var(--bg); }
   .live-scoring-count { font-size: 11px; color: var(--text-dim); }
+  .live-scoring-team-name.pill-red { color: var(--red); }
+  .live-scoring-team-name.pill-blue { color: var(--blue); }
   .modal-group-row td {
     padding: 10px 12px 4px; font-size: 10px; text-transform: uppercase;
     letter-spacing: 0.6px; color: var(--text-dim); border-bottom: none;
@@ -400,7 +402,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v17.0';
+const BUILD_VERSION = 'v17.1';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -735,6 +737,30 @@ function renderLeagueFilterPills(colorsPresent, currentFilter, dataAttr) {
   return `<div class="filter-pills">${pills}</div>`;
 }
 
+// The same real NFL player can be rostered by a team in EACH league at
+// once (two separate, independently-drafted leagues) -- without this,
+// a shared player would show up as two identical-looking rows (same
+// real stat line, so always the same points) rather than one row
+// naming both teams. Groups by playerId and collects every team that
+// currently has that player rostered.
+function groupLiveScoringByPlayer(players) {
+  const byPlayer = new Map();
+  players.forEach(p => {
+    if (!byPlayer.has(p.playerId)) {
+      byPlayer.set(p.playerId, {
+        playerId: p.playerId,
+        playerName: p.playerName,
+        position: p.position,
+        points: p.points,
+        justScored: p.justScored,
+        teams: [],
+      });
+    }
+    byPlayer.get(p.playerId).teams.push({ teamId: p.teamId, teamName: p.teamName, leagueColor: p.leagueColor });
+  });
+  return [...byPlayer.values()];
+}
+
 // Live Scoring -- every rostered starter whose real NFL team is currently
 // mid-game and who has actually scored, sorted highest points first (see
 // buildLiveScoringBoard in the backend). Self-hides the whole section
@@ -765,9 +791,19 @@ function renderLiveScoringBoard() {
     leagueFilteredPlayers.map(p => [`${p.leagueColor}:${p.teamId}`, { key: `${p.leagueColor}:${p.teamId}`, teamName: p.teamName, leagueColor: p.leagueColor }])
   ).values()].sort((a, b) => a.teamName.localeCompare(b.teamName));
   const teamFilterActive = selectedLiveScoringTeamKeys.size > 0;
-  const filteredPlayers = teamFilterActive
-    ? leagueFilteredPlayers.filter(p => selectedLiveScoringTeamKeys.has(`${p.leagueColor}:${p.teamId}`))
-    : leagueFilteredPlayers;
+
+  // Group first (across the full league-filtered list, so a shared
+  // player's *other* team is known about), then apply the team filter to
+  // the grouped rows -- a player passes if ANY of their teams is
+  // selected, but only the selected team(s) are shown on that row, not
+  // an unrelated team you didn't ask to isolate.
+  let displayPlayers = groupLiveScoringByPlayer(leagueFilteredPlayers);
+  if (teamFilterActive) {
+    displayPlayers = displayPlayers
+      .map(p => ({ ...p, teams: p.teams.filter(t => selectedLiveScoringTeamKeys.has(`${t.leagueColor}:${t.teamId}`)) }))
+      .filter(p => p.teams.length > 0);
+  }
+  displayPlayers.sort((a, b) => b.points - a.points);
 
   const teamChipsHtml = teamsPresent.length > 1 ? `
     <div class="filter-pills">
@@ -783,23 +819,28 @@ function renderLiveScoringBoard() {
   // so an expanded view doesn't collapse back to 25 on its own; it only
   // resets when the filter actually changes, since that's effectively a
   // new view.
-  const visiblePlayers = filteredPlayers.slice(0, liveScoringVisibleCount);
+  const visiblePlayers = displayPlayers.slice(0, liveScoringVisibleCount);
   const rowsHtml = visiblePlayers.map(p => {
     const positionLabel = p.position ? escapeHtml(p.position) + ' ' : '';
     const dot = p.justScored ? '<span class="just-scored-dot" title="Scored in the last update"></span>' : '';
+    // A player on just one team keeps the same red/blue row tint as
+    // before; a shared player's row stays neutral (can't tint for two
+    // leagues at once) and instead color-codes each team name inline.
+    const rowClass = p.teams.length === 1 ? `row-${p.teams[0].leagueColor}` : '';
+    const teamsHtml = p.teams.map(t => `<span class="live-scoring-team-name pill-${t.leagueColor}">${escapeHtml(t.teamName)}</span>`).join(', ');
     return `
-      <tr class="row-${p.leagueColor}">
-        <td>${escapeHtml(p.teamName)}</td>
+      <tr class="${rowClass}">
+        <td>${teamsHtml}</td>
         <td>${positionLabel}${escapeHtml(p.playerName)}${dot}</td>
         <td class="num">${p.points.toFixed(1)}</td>
       </tr>`;
   }).join('');
 
-  const remaining = filteredPlayers.length - visiblePlayers.length;
+  const remaining = displayPlayers.length - visiblePlayers.length;
   const loadMoreHtml = remaining > 0
-    ? `<div class="live-scoring-more"><button type="button" id="liveScoringLoadMore">Show ${Math.min(25, remaining)} more</button><span class="live-scoring-count">Showing ${visiblePlayers.length} of ${filteredPlayers.length}</span></div>`
-    : filteredPlayers.length > 25
-      ? `<div class="live-scoring-count">Showing all ${filteredPlayers.length}</div>`
+    ? `<div class="live-scoring-more"><button type="button" id="liveScoringLoadMore">Show ${Math.min(25, remaining)} more</button><span class="live-scoring-count">Showing ${visiblePlayers.length} of ${displayPlayers.length}</span></div>`
+    : displayPlayers.length > 25
+      ? `<div class="live-scoring-count">Showing all ${displayPlayers.length}</div>`
       : '';
 
   document.getElementById('liveScoringContainer').innerHTML = `
