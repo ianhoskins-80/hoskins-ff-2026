@@ -389,7 +389,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v15.0';
+const BUILD_VERSION = 'v15.1';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -1158,11 +1158,25 @@ function renderStandingsChart() {
   });
   Object.values(byLeagueColor).forEach(ids => ids.sort((a, b) => a - b));
 
+  // A team's standings-history teamName is frozen at whatever it was
+  // called when that week's snapshot was written -- if the team renames
+  // itself afterward (a real thing that happens), that name goes stale
+  // until the next weekly snapshot lands, which can be up to a week
+  // away (or forever, for the write-once preseason doc). Prefer the
+  // live current name (same leagueColor:teamId lookup used everywhere
+  // else in the app) and only fall back to the snapshotted name if the
+  // team can't be found live.
+  const liveNameByKey = {};
+  leagues.forEach(l => {
+    (l.data.teams || []).forEach(t => { liveNameByKey[`${l.color}:${t.id}`] = t.name; });
+  });
+
   const teamMeta = {};
   latestWeek.standings.forEach(s => {
+    const key = teamKey(s);
     const group = byLeagueColor[s.leagueColor] || [];
-    teamMeta[teamKey(s)] = {
-      name: s.teamName,
+    teamMeta[key] = {
+      name: liveNameByKey[key] || s.teamName,
       lineColor: teamLineColor(s.leagueColor, group.indexOf(s.teamId), group.length),
     };
   });
