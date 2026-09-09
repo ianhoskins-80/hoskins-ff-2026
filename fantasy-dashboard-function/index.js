@@ -30,14 +30,32 @@ async function fetchLeague(leagueId) {
   return res.json();
 }
 
+// A standard NFL game is 4 15-min quarters; ESPN's per-game `clock` is
+// seconds remaining in the *current* period. "Time left in the game" for
+// a period still in regulation is however many full periods remain after
+// this one, plus the current period's own clock. In overtime (period > 4)
+// there's nothing scheduled after it, so it's just the current clock.
+const REGULATION_PERIODS = 4;
+const SECONDS_PER_PERIOD = 15 * 60;
+function secondsRemainingInGame(period, clockSeconds) {
+  if (!period || period < 1) return null;
+  if (period > REGULATION_PERIODS) return clockSeconds;
+  return (REGULATION_PERIODS - period) * SECONDS_PER_PERIOD + clockSeconds;
+}
+
 // Public, unauthenticated ESPN scoreboard -- a *different* ESPN API than
 // the fantasy one above (site.api.espn.com, not lm-api-reads.fantasy).
 // This is what actually knows whether an NFL game is live right now
-// (status.type.state: 'pre' | 'in' | 'post'); the fantasy API's own
-// per-player stats only tell you whether ESPN has posted *any* stat for
-// a player this week, which doesn't distinguish a game still in progress
-// from one that already ended.
-async function fetchInProgressTeams(week) {
+// (status.type.state: 'pre' | 'in' | 'post') and how much game clock is
+// left; the fantasy API's own per-player stats only tell you whether
+// ESPN has posted *any* stat for a player this week, which doesn't
+// distinguish a game still in progress from one that already ended, and
+// carries no clock data at all. Returns one status per NFL team
+// abbreviation (both sides of every game get the same status), used by
+// both Live Scoring and the matchup-card metrics (Currently Playing /
+// Yet to Play / Mins Left) so there's a single scoreboard fetch per
+// refresh cycle, not one per feature.
+async function fetchNflGameStatus(week) {
   try {
     const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week=${week}&year=${SEASON}&seasontype=2`;
     const res = await fetch(url);
@@ -45,20 +63,24 @@ async function fetchInProgressTeams(week) {
       throw new Error(`ESPN scoreboard fetch failed: HTTP ${res.status}`);
     }
     const data = await res.json();
-    const inProgress = new Set();
+    const statusByTeam = {};
     (data.events || []).forEach(event => {
-      if (event.status?.type?.state !== 'in') return;
+      const state = event.status?.type?.state; // 'pre' | 'in' | 'post'
+      const period = event.status?.period ?? 0;
+      const clockSeconds = event.status?.clock ?? 0;
+      const secondsRemaining = state === 'in' ? secondsRemainingInGame(period, clockSeconds) : null;
       const competitors = event.competitions?.[0]?.competitors || [];
       competitors.forEach(c => {
-        if (c.team?.abbreviation) inProgress.add(c.team.abbreviation);
+        if (c.team?.abbreviation) statusByTeam[c.team.abbreviation] = { state, secondsRemaining };
       });
     });
-    return inProgress;
+    return statusByTeam;
   } catch (err) {
-    // Non-fatal -- Live Scoring just stays empty this cycle rather than
-    // breaking the main dashboard refresh.
+    // Non-fatal -- Live Scoring and the matchup-card live metrics just
+    // fall back to "unknown" this cycle rather than breaking the main
+    // dashboard refresh.
     console.error('Failed to fetch NFL scoreboard:', err.message);
-    return new Set();
+    return {};
   }
 }
 
@@ -256,11 +278,11 @@ async function snapshotCurrentWeekRosters(results) {
 
 // "Live Scoring" board -- every rostered STARTER (bench/IR excluded, same
 // convention as everywhere else) whose real NFL team is currently mid-game
-// (per fetchInProgressTeams, not the fantasy API's own weaker "has posted
+// (per fetchNflGameStatus, not the fantasy API's own weaker "has posted
 // any stat this week" signal) AND who has actually scored (appliedTotal >
 // 0) -- per explicit request, a currently-playing-but-scoreless starter
 // doesn't show. Sorted highest points first.
-async function buildLiveScoringBoard(results, inProgressTeams) {
+async function buildLiveScoringBoard(results, gameStatus) {
   const currentWeek = results[0]?.data?.status?.currentMatchupPeriod ?? 1;
   const entries = [];
 
@@ -281,7 +303,7 @@ async function buildLiveScoringBoard(results, inProgressTeams) {
 
           const player = entry.playerPoolEntry?.player || {};
           const nflTeam = PRO_TEAM_ABBR[player.proTeamId];
-          if (!nflTeam || !inProgressTeams.has(nflTeam)) return;
+          if (!nflTeam || gameStatus[nflTeam]?.state !== 'in') return;
 
           const stats = player.stats || [];
           const actualStat = stats.find(s => s.scoringPeriodId === currentWeek && s.statSourceId === 0);
@@ -346,12 +368,13 @@ async function refreshAllLeagues() {
   }
 
   const currentWeek = results[0]?.data?.status?.currentMatchupPeriod ?? 1;
-  const inProgressTeams = await fetchInProgressTeams(currentWeek);
-  const liveScoring = await buildLiveScoringBoard(results, inProgressTeams);
+  const gameStatus = await fetchNflGameStatus(currentWeek);
+  const liveScoring = await buildLiveScoringBoard(results, gameStatus);
 
   await firestore.collection('fantasy-dashboard').doc('latest').set({
     leagues: results,
     liveScoring,
+    gameStatus,
     updatedAt: new Date().toISOString(),
   });
 
@@ -359,7 +382,7 @@ async function refreshAllLeagues() {
   await seedPreseasonStandingsSnapshot(results);
   await snapshotCurrentWeekRosters(results);
 
-  return { results, liveScoring };
+  return { results, liveScoring, gameStatus };
 }
 
 // ---------------------------------------------------------------------
@@ -402,8 +425,8 @@ functions.http('getDashboard', async (req, res) => {
 
     const doc = await firestore.collection('fantasy-dashboard').doc('latest').get();
     if (!doc.exists) {
-      const { results, liveScoring } = await refreshAllLeagues();
-      res.status(200).json({ leagues: results, liveScoring, updatedAt: new Date().toISOString(), standingsHistory, rosterHistory });
+      const { results, liveScoring, gameStatus } = await refreshAllLeagues();
+      res.status(200).json({ leagues: results, liveScoring, gameStatus, updatedAt: new Date().toISOString(), standingsHistory, rosterHistory });
       return;
     }
     res.status(200).json({ ...doc.data(), standingsHistory, rosterHistory });

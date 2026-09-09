@@ -65,6 +65,7 @@ gcloud scheduler jobs run refresh-fantasy-leagues --location=us-central1 --proje
 **`fantasy-dashboard/latest`** — single document, overwritten every 5 minutes:
 - `leagues` — array of `{ color, data }`, where `data` is the **full, untrimmed** ESPN league response
 - `liveScoring` — the Live Scoring board, see below
+- `gameStatus` — `{ [nflTeamAbbr]: { state: 'pre'|'in'|'post', secondsRemaining } }`, one entry per NFL team from the public scoreboard API (see Live Scoring, below) — also drives the matchup-card Currently Playing / Yet to Play / Mins Left metrics
 - `updatedAt` — ISO timestamp
 
 The full ESPN response is stored (not a trimmed subset) because the frontend's "Currently Playing" / "Yet to Play" metrics depend on per-player roster data only present there. Don't trim this payload without checking whether the frontend still needs those fields.
@@ -126,7 +127,7 @@ For the current week, rosters come live from `leagues`. For a past week, they co
 
 Above "Points by Position," a leaderboard of every rostered **starter** (bench/IR excluded) whose real NFL team is currently mid-game and who has **actually scored** (a scoreless-but-playing starter doesn't show) — `Team — Position Player — Points`, sorted highest points first. Entirely self-hiding: the whole section, heading included, disappears when nobody rostered is currently playing, which is the common case most of the week.
 
-"Currently mid-game" comes from a **second, separate ESPN API** — the public NFL scoreboard (`site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard`, unauthenticated, distinct from the fantasy API used everywhere else in this app) — cross-referenced against each player's `proTeamId` (via `PRO_TEAM_ABBR`) to check whether their team's game `status.type.state` is `'in'`. This is a real live/finished/upcoming signal, unlike the fantasy API's own per-player stats, which only say whether ESPN has posted *any* stat for a player this week — that doesn't distinguish a game still in progress from one that already ended. See `fetchInProgressTeams()` in `index.js`.
+"Currently mid-game" comes from a **second, separate ESPN API** — the public NFL scoreboard (`site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard`, unauthenticated, distinct from the fantasy API used everywhere else in this app) — cross-referenced against each player's `proTeamId` (via `PRO_TEAM_ABBR`) to check whether their team's game `status.type.state` is `'in'`. This is a real live/finished/upcoming signal, unlike the fantasy API's own per-player stats, which only say whether ESPN has posted *any* stat for a player this week — that doesn't distinguish a game still in progress from one that already ended. See `fetchNflGameStatus()` in `index.js` — the same per-team status (and remaining game clock) it returns also drives the matchup-card Currently Playing / Yet to Play / Mins Left metrics (below), so there's one scoreboard fetch per refresh cycle, not one per feature.
 
 A small green dot next to a player's name means they scored in the last 5-minute refresh — compares this cycle's points to the previous cycle's, stored in `fantasy-dashboard/live-scoring-prev` (see Firestore above), since a Cloud Function doesn't retain memory between invocations and the indicator is meant to track the backend's own refresh cadence, not "since this browser tab last polled."
 
@@ -164,8 +165,8 @@ Below the standings table, a hand-rolled inline SVG line chart (no charting libr
 | Metric | Status |
 |---|---|
 | Projected | Direct from ESPN's `totalProjectedPoints`. Fully working. |
-| Currently Playing / Yet to Play | Computed client-side from each team's starting lineup (`rosterForCurrentScoringPeriod.entries`, excluding bench/IR). A starter counts as "playing" if ESPN has posted an actual (non-projected) stats entry (`statSourceId === 0`). This is an inferred proxy, not an explicit ESPN field — worth re-validating against real in-season data. |
-| Mins Left | **Not implemented.** Hidden from the UI for now (the metric row is still in the DOM, just marked `hidden`, so it's a one-line change to bring back). ESPN's live game-clock data isn't currently pulled or parsed; needs either the `mLiveScoring` view or a separate live-scores data source. |
+| Currently Playing / Yet to Play | Computed client-side from each team's starting lineup (`rosterForCurrentScoringPeriod.entries`, excluding bench/IR), driven by `gameStatus` (see Live Scoring, above) — a starter counts as "Currently Playing" if their NFL team's game `state` is `'in'`, or "Yet to Play" if `'pre'`. A starter whose team isn't in `gameStatus` at all (bye week, or the scoreboard fetch failed that cycle) counts toward neither. Used to be inferred from whether ESPN had posted any stat for the player, which conflated "still playing" with "already finished" and miscounted bye-week players as "yet to play." |
+| Mins Left | Time remaining until this team's **last** currently-playing starter's game ends (a max across their active games' remaining clock, not a sum, since a team's starters can be in different simultaneous games) — `—` when nobody on the team is currently playing. Built from the same `gameStatus.secondsRemaining` used above (`secondsRemainingInGame()` in the backend converts ESPN's per-quarter clock into "time left in the whole game"). |
 
 ### Onboarding tour
 

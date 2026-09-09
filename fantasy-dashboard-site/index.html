@@ -356,7 +356,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v12.0';
+const BUILD_VERSION = 'v13.0';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -376,6 +376,7 @@ let leagues = []; // populated from the API: [{ color, data }]
 let standingsHistory = []; // populated from the API: [{ week, snapshotAt, standings: [...] }]
 let rosterHistory = []; // populated from the API: [{ week, snapshotAt, teams: { "color:teamId": { teamName, leagueColor, players } } }]
 let liveScoring = []; // populated from the API: [{ playerId, playerName, position, teamName, leagueColor, points, justScored }]
+let gameStatus = {}; // populated from the API: { [nflTeamAbbr]: { state: 'pre'|'in'|'post', secondsRemaining } }
 let selectedChartTeamIds = new Set(); // multi-select filter state for the standings chart
 let matrixLeagueFilter = 'all'; // 'all' or a league color -- row filter for the points-by-position matrix
 let standingsLeagueFilter = 'all'; // 'all' or a league color -- row filter for Combined Standings
@@ -455,22 +456,40 @@ function memberName(data, ownerId) {
   return m ? toTitleCase(m.firstName + ' ' + m.lastName) : '';
 }
 
-// Best-effort "has this player's real NFL game started/finished" check.
-// ESPN includes a stats entry with statSourceId 0 once actual (non-projected)
-// stats exist for a player; until then only statSourceId 1 (projection) exists.
-function starterHasActualStats(entry) {
-  const stats = entry?.playerPoolEntry?.player?.stats || [];
-  return stats.some(s => s.statSourceId === 0);
-}
-
+// Currently Playing / Yet to Play / Mins Left, driven by `gameStatus`
+// (the backend's per-NFL-team live status from the public ESPN
+// scoreboard -- see fetchNflGameStatus/buildLiveScoringBoard in the
+// backend, and Live Scoring above). This used to be inferred from
+// whether ESPN had posted any actual stat for a player, which doesn't
+// distinguish a game still in progress from one that already ended (and
+// wrongly counted a bye-week player as "yet to play" instead of neither).
+// A starter whose NFL team isn't in `gameStatus` at all (bye week, or the
+// scoreboard fetch failed this cycle) counts toward neither bucket.
 function computePlayCounts(sideData) {
   const entries = sideData?.rosterForCurrentScoringPeriod?.entries || [];
   // lineupSlotId 20 = bench, 21 = IR -- exclude those, only count starters.
   // Guard against a null entry (e.g. an unfilled roster slot) rather than erroring.
   const starters = entries.filter(e => e && e.lineupSlotId !== 20 && e.lineupSlotId !== 21);
-  const playing = starters.filter(starterHasActualStats).length;
-  const yetToPlay = starters.length - playing;
-  return { playing, yetToPlay };
+
+  let playing = 0;
+  let yetToPlay = 0;
+  let minsLeft = null; // time left until this team's LAST currently-playing starter's game ends
+  starters.forEach(entry => {
+    const player = entry.playerPoolEntry?.player;
+    const nflTeam = PRO_TEAM_ABBR[player?.proTeamId];
+    const status = nflTeam ? gameStatus[nflTeam] : null;
+    if (!status) return;
+    if (status.state === 'in') {
+      playing++;
+      if (status.secondsRemaining != null) {
+        minsLeft = minsLeft == null ? status.secondsRemaining : Math.max(minsLeft, status.secondsRemaining);
+      }
+    } else if (status.state === 'pre') {
+      yetToPlay++;
+    }
+  });
+
+  return { playing, yetToPlay, minsLeft: minsLeft != null ? Math.ceil(minsLeft / 60) : null };
 }
 
 function renderMatchupsBlock(league, leagueIdx) {
@@ -512,7 +531,7 @@ function renderMatchupsBlock(league, leagueIdx) {
         <div class="team-metrics">
           <div class="metric"><span class="metric-label">Currently Playing</span><span class="metric-value">${counts.playing}</span></div>
           <div class="metric"><span class="metric-label">Yet to Play</span><span class="metric-value">${counts.yetToPlay}</span></div>
-          <div class="metric" hidden><span class="metric-label">Mins Left</span><span class="metric-value">—</span></div>
+          <div class="metric"><span class="metric-label">Mins Left</span><span class="metric-value">${counts.minsLeft != null ? counts.minsLeft : '—'}</span></div>
           <div class="metric"><span class="metric-label">Projected</span><span class="metric-value">${proj.toFixed(1)}</span></div>
         </div>
       </div>`;
@@ -1633,6 +1652,7 @@ async function loadDashboard() {
     standingsHistory = payload.standingsHistory || [];
     rosterHistory = payload.rosterHistory || [];
     liveScoring = payload.liveScoring || [];
+    gameStatus = payload.gameStatus || {};
     renderAll();
     renderPositionMatrix();
     renderStandingsChart();
