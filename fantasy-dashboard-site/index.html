@@ -215,6 +215,9 @@
   .tour-mockup-pill { display: inline-block; font-size: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 2px 8px; margin-right: 4px; color: var(--text-dim); }
   .tour-mockup-badge { display: inline-block; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 700; margin-right: 8px; flex-shrink: 0; }
   .tour-mockup-chart { display: block; margin: 10px 0; }
+  .tour-feature-list { margin: 10px 0; padding-left: 20px; }
+  .tour-feature-list li { margin-bottom: 8px; line-height: 1.4; }
+  .tour-feature-list li:last-child { margin-bottom: 0; }
   .tour-dots { display: flex; gap: 5px; justify-content: center; margin-top: 14px; }
   .tour-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
   .tour-dot.active { background: var(--text-dim); }
@@ -389,20 +392,31 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v15.1';
+const BUILD_VERSION = 'v16.0';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
 
-// Auto-show the onboarding tour once, on a browser's first-ever visit
-// (tracked in localStorage -- see TOUR_STORAGE_KEY below). Deferred via
+// Auto-show the onboarding tour on a browser's first-ever visit, and
+// again for anyone who already saw an older TOUR_VERSION (tracked in
+// localStorage -- see TOUR_STORAGE_KEY / PREVIOUS_TOUR_STORAGE_KEY
+// below). It keeps re-showing on every load until the visitor actually
+// closes it (any close path marks TOUR_STORAGE_KEY seen -- see
+// closeModal), so it's effectively forced until dismissed once. A
+// returning visitor who already sat through the old tour jumps straight
+// to the new last slide instead of replaying the whole thing; a
+// brand-new visitor still gets the full tour from slide 1. Deferred via
 // setTimeout both for a short paint-first delay and so TOUR_STORAGE_KEY
 // (declared further down this script) is safely initialized by the time
 // this callback runs.
 setTimeout(() => {
   let alreadySeen = false;
-  try { alreadySeen = localStorage.getItem(TOUR_STORAGE_KEY) === '1'; } catch (e) { /* private browsing etc. */ }
-  if (!alreadySeen) startTour();
+  let sawPreviousVersion = false;
+  try {
+    alreadySeen = localStorage.getItem(TOUR_STORAGE_KEY) === '1';
+    sawPreviousVersion = localStorage.getItem(PREVIOUS_TOUR_STORAGE_KEY) === '1';
+  } catch (e) { /* private browsing etc. */ }
+  if (!alreadySeen) startTour(sawPreviousVersion ? TOUR_STEPS.length - 1 : 0);
 }, 400);
 
 let leagues = []; // populated from the API: [{ color, data }]
@@ -1332,10 +1346,17 @@ function closeModal() {
 // made-up example teams/leagues in its mockups, not this dashboard's
 // real ones, so it reads as generic illustration rather than live data.
 // TOUR_VERSION exists so a future redesign can re-show it once by
-// bumping the version, without needing to clear anyone's storage.
+// bumping the version, without needing to clear anyone's storage --
+// used here to resurface the tour for everyone who already saw v1, so
+// they see the new "New Features" slide. PREVIOUS_TOUR_STORAGE_KEY
+// (the v1 key) lets the first-visit check tell a genuinely brand-new
+// visitor (who should see the whole tour, slide 1 first) apart from a
+// returning one who already sat through slides 1-5 (who should jump
+// straight to the new slide instead of replaying the whole thing).
 // ---------------------------------------------------------------------
-const TOUR_VERSION = '1';
+const TOUR_VERSION = '2';
 const TOUR_STORAGE_KEY = 'ff-tour-seen-v' + TOUR_VERSION;
+const PREVIOUS_TOUR_STORAGE_KEY = 'ff-tour-seen-v1';
 let tourActive = false;
 let tourStepIndex = 0;
 
@@ -1392,7 +1413,18 @@ const TOUR_STEPS = [
         <polyline points="10,50 60,20 110,30 160,10" fill="none" style="stroke:var(--red); stroke-width:2"></polyline>
         <polyline points="10,15 60,40 110,25 160,45" fill="none" style="stroke:var(--blue); stroke-width:2"></polyline>
       </svg>
-      <p>Click on a team name — or multiple team names — to filter.</p>
+      <p>Click on a team name — or multiple team names — to filter.</p>`,
+  },
+  {
+    title: 'New Features',
+    body: `
+      <p>Since you were last here, a few things have been added:</p>
+      <ul class="tour-feature-list">
+        <li>Score cards now show accurate <b>Currently Playing</b>, <b>Yet to Play</b>, and <b>Mins Left</b> metrics.</li>
+        <li>Game dates and times have been added to roster cards.</li>
+        <li>Every section can now be minimized — look for the arrow next to each heading.</li>
+        <li><b>Live Scoring</b> now shows which rostered players are currently playing and scoring, team by team.</li>
+      </ul>
       <p>That's it! Come back to this anytime with the "What's New" link at the bottom of the page.</p>`,
   },
 ];
@@ -1422,9 +1454,9 @@ function renderTourStep() {
   });
 }
 
-function startTour() {
+function startTour(stepIndex = 0) {
   tourActive = true;
-  tourStepIndex = 0;
+  tourStepIndex = stepIndex;
   renderTourStep();
 }
 
