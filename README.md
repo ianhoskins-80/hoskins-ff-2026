@@ -37,11 +37,12 @@ fantasy-dashboard-site/       Frontend: Firebase Hosting
 
 **`refreshLeagues`** — scheduled, not public
 - Fetches ESPN data for each league in the `LEAGUES` config array in `index.js`
+- Also fetches the public NFL scoreboard (a *second*, separate ESPN API — see Live Scoring below) to know which NFL games are currently live
 - Writes results to Firestore (`fantasy-dashboard/latest`)
 - Triggered by Cloud Scheduler; not meant to be called directly
 
 **`getDashboard`** — public
-- Returns the cached Firestore document (`leagues`, `updatedAt`) plus `standingsHistory` and `rosterHistory` (every week's snapshot of each, see Firestore below) to the frontend
+- Returns the cached Firestore document (`leagues`, `liveScoring`, `updatedAt`) plus `standingsHistory` and `rosterHistory` (every week's snapshot of each, see Firestore below) to the frontend
 - URL: `https://us-central1-fantasy2026.cloudfunctions.net/getDashboard`
 - Falls back to a live ESPN fetch if no cache exists yet (first-run only)
 
@@ -63,9 +64,12 @@ gcloud scheduler jobs run refresh-fantasy-leagues --location=us-central1 --proje
 
 **`fantasy-dashboard/latest`** — single document, overwritten every 5 minutes:
 - `leagues` — array of `{ color, data }`, where `data` is the **full, untrimmed** ESPN league response
+- `liveScoring` — the Live Scoring board, see below
 - `updatedAt` — ISO timestamp
 
 The full ESPN response is stored (not a trimmed subset) because the frontend's "Currently Playing" / "Yet to Play" metrics depend on per-player roster data only present there. Don't trim this payload without checking whether the frontend still needs those fields.
+
+**`fantasy-dashboard/live-scoring-prev`** — internal-only, not read by the frontend: `{ points: { [playerId]: pointsAtLastRefresh }, updatedAt }`. Lets `buildLiveScoringBoard()` compare this cycle's points to the previous cycle's to flag a player as having just scored — see Live Scoring, below.
 
 **`standings-history/{week}`** — one doc per completed NFL week, written by `refreshLeagues`:
 - `week` — the week number (matches ESPN's `matchupPeriodId`)
@@ -117,6 +121,16 @@ Clicking a team name in the Combined Standings table opens that team's season hi
 Clicking the small "vs" glyph between the two teams on a matchup card, or a week number inside the score-history modal, opens a side-by-side comparison: both teams' full rosters (same Pos/Player/Team/Proj/Actual table as the roster lightbox) for that specific week, with the winning team's header tinted.
 
 For the current week, rosters come live from `leagues`. For a past week, they come from that week's `roster-history` snapshot instead (see Firestore below) — a small note ("From the Week N roster snapshot...") marks this. If no snapshot exists for the requested week (it predates this feature, or a write failed), that side shows "No roster snapshot available for this week" rather than erroring or showing something misleading.
+
+### Live Scoring
+
+Above "Points by Position," a leaderboard of every rostered **starter** (bench/IR excluded) whose real NFL team is currently mid-game and who has **actually scored** (a scoreless-but-playing starter doesn't show) — `Team — Position Player — Points`, sorted highest points first. Entirely self-hiding: the whole section, heading included, disappears when nobody rostered is currently playing, which is the common case most of the week.
+
+"Currently mid-game" comes from a **second, separate ESPN API** — the public NFL scoreboard (`site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard`, unauthenticated, distinct from the fantasy API used everywhere else in this app) — cross-referenced against each player's `proTeamId` (via `PRO_TEAM_ABBR`) to check whether their team's game `status.type.state` is `'in'`. This is a real live/finished/upcoming signal, unlike the fantasy API's own per-player stats, which only say whether ESPN has posted *any* stat for a player this week — that doesn't distinguish a game still in progress from one that already ended. See `fetchInProgressTeams()` in `index.js`.
+
+A small green dot next to a player's name means they scored in the last 5-minute refresh — compares this cycle's points to the previous cycle's, stored in `fantasy-dashboard/live-scoring-prev` (see Firestore above), since a Cloud Function doesn't retain memory between invocations and the indicator is meant to track the backend's own refresh cadence, not "since this browser tab last polled."
+
+Same league-filter pills and red/blue row tinting as every other section (`renderLeagueFilterPills()`, `tr.row-red`/`tr.row-blue`).
 
 ### Points by position
 

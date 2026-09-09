@@ -30,6 +30,38 @@ async function fetchLeague(leagueId) {
   return res.json();
 }
 
+// Public, unauthenticated ESPN scoreboard -- a *different* ESPN API than
+// the fantasy one above (site.api.espn.com, not lm-api-reads.fantasy).
+// This is what actually knows whether an NFL game is live right now
+// (status.type.state: 'pre' | 'in' | 'post'); the fantasy API's own
+// per-player stats only tell you whether ESPN has posted *any* stat for
+// a player this week, which doesn't distinguish a game still in progress
+// from one that already ended.
+async function fetchInProgressTeams(week) {
+  try {
+    const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week=${week}&year=${SEASON}&seasontype=2`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`ESPN scoreboard fetch failed: HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    const inProgress = new Set();
+    (data.events || []).forEach(event => {
+      if (event.status?.type?.state !== 'in') return;
+      const competitors = event.competitions?.[0]?.competitors || [];
+      competitors.forEach(c => {
+        if (c.team?.abbreviation) inProgress.add(c.team.abbreviation);
+      });
+    });
+    return inProgress;
+  } catch (err) {
+    // Non-fatal -- Live Scoring just stays empty this cycle rather than
+    // breaking the main dashboard refresh.
+    console.error('Failed to fetch NFL scoreboard:', err.message);
+    return new Set();
+  }
+}
+
 // Mirrors the frontend's memberName() in index.html -- duplicated here, like
 // POSITION_NAMES/SLOT_NAMES/PRO_TEAM_ABBR below, so the roster snapshot can
 // be built server-side. Stores the raw ESPN casing; the frontend applies
@@ -222,6 +254,84 @@ async function snapshotCurrentWeekRosters(results) {
   }
 }
 
+// "Live Scoring" board -- every rostered STARTER (bench/IR excluded, same
+// convention as everywhere else) whose real NFL team is currently mid-game
+// (per fetchInProgressTeams, not the fantasy API's own weaker "has posted
+// any stat this week" signal) AND who has actually scored (appliedTotal >
+// 0) -- per explicit request, a currently-playing-but-scoreless starter
+// doesn't show. Sorted highest points first.
+async function buildLiveScoringBoard(results, inProgressTeams) {
+  const currentWeek = results[0]?.data?.status?.currentMatchupPeriod ?? 1;
+  const entries = [];
+
+  results.forEach(({ color, data }) => {
+    const teams = data.teams || [];
+    const teamById = id => teams.find(t => t.id === id);
+    const weekGames = (data.schedule || []).filter(g => g.matchupPeriodId === currentWeek);
+
+    weekGames.forEach(g => {
+      ['home', 'away'].forEach(side => {
+        const sideData = g[side];
+        if (!sideData) return;
+        const team = teamById(sideData.teamId);
+        const rosterEntries = (sideData.rosterForCurrentScoringPeriod?.entries || []).filter(Boolean);
+
+        rosterEntries.forEach(entry => {
+          if (entry.lineupSlotId === 20 || entry.lineupSlotId === 21) return; // bench / IR
+
+          const player = entry.playerPoolEntry?.player || {};
+          const nflTeam = PRO_TEAM_ABBR[player.proTeamId];
+          if (!nflTeam || !inProgressTeams.has(nflTeam)) return;
+
+          const stats = player.stats || [];
+          const actualStat = stats.find(s => s.scoringPeriodId === currentWeek && s.statSourceId === 0);
+          const points = actualStat ? actualStat.appliedTotal : 0;
+          if (!(points > 0)) return;
+
+          entries.push({
+            playerId: player.id,
+            playerName: player.fullName || 'Unknown',
+            position: POSITION_NAMES[player.defaultPositionId] || SLOT_NAMES[entry.lineupSlotId] || null,
+            teamName: team ? team.name : 'TBD',
+            leagueColor: color,
+            points,
+          });
+        });
+      });
+    });
+  });
+
+  entries.sort((a, b) => b.points - a.points);
+
+  // "Just scored" -- compare each player's points to the *previous*
+  // refresh's snapshot, stored in Firestore since a Cloud Function
+  // doesn't retain memory between invocations. Tied to the backend's own
+  // 5-min cadence, not "since this browser tab last polled", so the flag
+  // is correct no matter when a viewer's page happens to load.
+  const prevRef = firestore.collection('fantasy-dashboard').doc('live-scoring-prev');
+  let previousPoints = {};
+  try {
+    const prevDoc = await prevRef.get();
+    previousPoints = prevDoc.exists ? (prevDoc.data().points || {}) : {};
+  } catch (err) {
+    console.error('Failed to read previous live-scoring snapshot:', err.message);
+  }
+
+  const nextPoints = {};
+  entries.forEach(e => {
+    e.justScored = e.points > (previousPoints[e.playerId] ?? 0);
+    nextPoints[e.playerId] = e.points;
+  });
+
+  try {
+    await prevRef.set({ points: nextPoints, updatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error('Failed to write live-scoring snapshot:', err.message);
+  }
+
+  return entries;
+}
+
 async function refreshAllLeagues() {
   const results = [];
   for (const league of LEAGUES) {
@@ -235,8 +345,13 @@ async function refreshAllLeagues() {
     }
   }
 
+  const currentWeek = results[0]?.data?.status?.currentMatchupPeriod ?? 1;
+  const inProgressTeams = await fetchInProgressTeams(currentWeek);
+  const liveScoring = await buildLiveScoringBoard(results, inProgressTeams);
+
   await firestore.collection('fantasy-dashboard').doc('latest').set({
     leagues: results,
+    liveScoring,
     updatedAt: new Date().toISOString(),
   });
 
@@ -244,7 +359,7 @@ async function refreshAllLeagues() {
   await seedPreseasonStandingsSnapshot(results);
   await snapshotCurrentWeekRosters(results);
 
-  return results;
+  return { results, liveScoring };
 }
 
 // ---------------------------------------------------------------------
@@ -255,7 +370,7 @@ async function refreshAllLeagues() {
 // ---------------------------------------------------------------------
 functions.http('refreshLeagues', async (req, res) => {
   try {
-    const results = await refreshAllLeagues();
+    const { results } = await refreshAllLeagues();
     res.status(200).json({ ok: true, leagueCount: results.length });
   } catch (err) {
     console.error(err);
@@ -287,8 +402,8 @@ functions.http('getDashboard', async (req, res) => {
 
     const doc = await firestore.collection('fantasy-dashboard').doc('latest').get();
     if (!doc.exists) {
-      const results = await refreshAllLeagues();
-      res.status(200).json({ leagues: results, updatedAt: new Date().toISOString(), standingsHistory, rosterHistory });
+      const { results, liveScoring } = await refreshAllLeagues();
+      res.status(200).json({ leagues: results, liveScoring, updatedAt: new Date().toISOString(), standingsHistory, rosterHistory });
       return;
     }
     res.status(200).json({ ...doc.data(), standingsHistory, rosterHistory });
