@@ -438,3 +438,71 @@ functions.http('getDashboard', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ---------------------------------------------------------------------
+// FUNCTION 3: heartbeat
+// Called by the frontend every ~25s while a tab is open and visible, to
+// power the "currently viewing" count shown on the page. Upserts that
+// tab's presence doc (keyed by a random per-tab sessionId, no PII) with
+// a fresh timestamp, then returns how many tabs have heartbeat within
+// the last PRESENCE_TIMEOUT_MS -- a tab that stops heartbeating (closed,
+// or backgrounded -- the frontend pauses heartbeats via the Page
+// Visibility API) just ages out of that count on its own. No Firestore
+// TTL policy needed: stale docs are opportunistically deleted inline on
+// every call, so the collection can't grow unbounded even without one.
+// ---------------------------------------------------------------------
+const PRESENCE_TIMEOUT_MS = 90 * 1000;
+
+functions.http('heartbeat', async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
+  try {
+    const sessionId = req.body && req.body.sessionId;
+    // Strict allowlist (not just a length check) -- sessionId becomes a
+    // Firestore document path segment below, and a value containing '/'
+    // would resolve into a subcollection under presence/ instead of a
+    // flat doc there. Matches what crypto.randomUUID() (or the frontend's
+    // fallback generator) actually produces, so this never rejects a
+    // legitimate caller.
+    if (typeof sessionId !== 'string' || !/^[A-Za-z0-9-]{1,100}$/.test(sessionId)) {
+      res.status(400).json({ error: 'Missing or invalid sessionId' });
+      return;
+    }
+
+    const now = Date.now();
+    await firestore.collection('presence').doc(sessionId).set({ lastSeen: now });
+
+    const snapshot = await firestore.collection('presence').get();
+    let activeCount = 0;
+    const staleRefs = [];
+    snapshot.forEach(doc => {
+      const lastSeen = doc.data().lastSeen || 0;
+      if (now - lastSeen <= PRESENCE_TIMEOUT_MS) {
+        activeCount++;
+      } else {
+        staleRefs.push(doc.ref);
+      }
+    });
+
+    if (staleRefs.length) {
+      try {
+        const batch = firestore.batch();
+        staleRefs.forEach(ref => batch.delete(ref));
+        await batch.commit();
+      } catch (err) {
+        // Non-fatal -- they'll just get swept up on a later call.
+        console.error('Failed to clean up stale presence docs:', err.message);
+      }
+    }
+
+    res.status(200).json({ activeCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});

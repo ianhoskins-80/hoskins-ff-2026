@@ -46,6 +46,11 @@ fantasy-dashboard-site/       Frontend: Firebase Hosting
 - URL: `https://us-central1-fantasy2026.cloudfunctions.net/getDashboard`
 - Falls back to a live ESPN fetch if no cache exists yet (first-run only)
 
+**`heartbeat`** — public, called by the frontend on a ~25s interval (not the 5-min dashboard refresh cycle)
+- Upserts a `presence/{sessionId}` doc (a random per-tab ID, no PII) with the current timestamp, opportunistically deletes any doc that's gone stale, and returns how many are still active — powers the "currently viewing" count in the page's top-left corner (see Frontend below)
+- URL: `https://us-central1-fantasy2026.cloudfunctions.net/heartbeat`
+- `sessionId` is validated against a strict `[A-Za-z0-9-]` allowlist before being used as a Firestore path segment, not just checked for length — it's a UUID or UUID-shaped fallback string, so a legitimate caller is never rejected
+
 ### Cloud Scheduler
 
 | | |
@@ -71,6 +76,8 @@ gcloud scheduler jobs run refresh-fantasy-leagues --location=us-central1 --proje
 The full ESPN response is stored (not a trimmed subset) because the frontend's "Currently Playing" / "Yet to Play" metrics depend on per-player roster data only present there. Don't trim this payload without checking whether the frontend still needs those fields.
 
 **`fantasy-dashboard/live-scoring-prev`** — internal-only, not read by the frontend: `{ points: { [playerId]: pointsAtLastRefresh }, updatedAt }`. Lets `buildLiveScoringBoard()` compare this cycle's points to the previous cycle's to flag a player as having just scored — see Live Scoring, below.
+
+**`presence/{sessionId}`** — one doc per open tab, written by the `heartbeat` function (not `refreshLeagues` — this is the one collection not tied to the 5-min cache cycle): `{ lastSeen }`, a plain millisecond timestamp. No Firestore TTL policy — `heartbeat` deletes any doc it finds older than 90 seconds inline, every time it runs, so the collection self-cleans without needing one configured.
 
 **`standings-history/{week}`** — one doc per completed NFL week, written by `refreshLeagues`:
 - `week` — the week number (matches ESPN's `matchupPeriodId`)
@@ -105,6 +112,7 @@ The frontend is a single static `index.html` with no build step. It:
 - A small helmet icon next to each team name links out to that team's ESPN page; clicking the team name itself opens a modal (see below)
 - Every clickable element has a hover tooltip describing what it opens
 - **Collapsible sections:** every top-level section (This Week's Matchups, Live Scoring, Points by Position, Combined Standings, Standings Trend) has a minimize/maximize chevron in its header (`CHEVRON_SVG`, rotated via CSS rather than swapped for a different icon). Collapsing hides only that section's `.section-body` — the title stays visible so you can still see and re-expand it. Because the toggle wraps *around* each section's own render function rather than being recreated by it, collapse state survives the 5-min auto-refresh automatically; it's also persisted to `localStorage` (`ff-section-collapsed-<sectionId>`, same mechanism as the onboarding tour's "seen it" flag) so it survives a page reload too.
+- **"Currently viewing" count:** a small glasses icon + count, fixed to the very top-left corner of the page, light gray. This app has no real-time/WebSocket layer, so it's a heartbeat, not a live subscription — each tab pings the `heartbeat` function every ~25s with a random per-tab ID (see Backend above), and shows back however many tabs pinged in the last 90 seconds. Heartbeats pause whenever the tab is hidden (Page Visibility API) and resume immediately when it becomes visible again, rather than on a fixed timer, since a backgrounded tab isn't really being "viewed." A failed heartbeat just leaves the last known count on screen rather than clearing it or showing an error — a background nicety's hiccup isn't worth interrupting anyone over.
 
 All of the popups below share one modal component (`#modalBackdrop` / `#modalDialog` in `index.html`) — only the body content differs. It's dismissible via the ✕ button, a backdrop click, or Escape, and renders as a full-width bottom sheet on narrow viewports.
 
@@ -237,6 +245,7 @@ firebase deploy --only hosting
 cd fantasy-dashboard-function
 gcloud functions deploy refreshLeagues --gen2 --runtime=nodejs22 --region=us-central1 --source=. --entry-point=refreshLeagues --trigger-http --no-allow-unauthenticated --project=fantasy2026
 gcloud functions deploy getDashboard --gen2 --runtime=nodejs22 --region=us-central1 --source=. --entry-point=getDashboard --trigger-http --allow-unauthenticated --project=fantasy2026
+gcloud functions deploy heartbeat --gen2 --runtime=nodejs22 --region=us-central1 --source=. --entry-point=heartbeat --trigger-http --allow-unauthenticated --project=fantasy2026
 ```
 
 ## Verifying things are working

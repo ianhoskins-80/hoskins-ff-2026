@@ -18,7 +18,7 @@ Follow this for every change unless the user explicitly asks for something small
 7. **Commit, merge, push** — commit on the branch, merge `--no-ff` into `main`, push to GitHub.
 8. **Deploy** — only what actually changed:
    - Frontend touched → `cd fantasy-dashboard-site && firebase deploy --only hosting`
-   - Backend touched → redeploy both Cloud Functions (see README's Deployment section for the exact `gcloud functions deploy` commands) — `getDashboard` and `refreshLeagues` are deployed independently but usually change together
+   - Backend touched → redeploy whichever of the three Cloud Functions actually changed (`refreshLeagues`, `getDashboard`, `heartbeat` — see README's Deployment section for the exact `gcloud functions deploy` commands); they're deployed independently, but `refreshLeagues`/`getDashboard` usually change together since they share most of `index.js`
    - Don't deploy what didn't change (e.g. a docs-only or backend-only commit doesn't need a hosting deploy).
 9. **Verify in production** — after deploying, actually check: `curl` the live `getDashboard` endpoint and/or load the live site and confirm the change is there (e.g. check `BUILD_VERSION` in the deployed HTML matches what was just shipped, check for console errors on the live page).
 10. **Clean up the branch** — delete the local (and remote, if pushed) feature branch once merged.
