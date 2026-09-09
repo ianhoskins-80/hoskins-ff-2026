@@ -32,6 +32,12 @@
     padding: 28px 20px 60px;
   }
   .wrap { max-width: 1000px; margin: 0 auto; }
+  .viewer-count {
+    position: fixed; top: 10px; left: 10px; z-index: 50;
+    display: flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--text-dim);
+  }
+  .viewer-count svg { width: 14px; height: 14px; display: block; flex-shrink: 0; }
 
   h1 {
     font-family: 'Arial Black', Impact, sans-serif;
@@ -313,6 +319,7 @@
 </style>
 </head>
 <body>
+<div class="viewer-count" id="viewerCount" hidden></div>
 <div class="wrap">
   <h1>Hoskins Fantastical Family Football</h1>
   <div class="last-updated" id="lastUpdated">Loading...</div>
@@ -387,12 +394,13 @@
 // this is derived when bootstrapping a new instance of this project).
 // ---------------------------------------------------------------------
 const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/getDashboard';
+const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartbeat';
 
 // ---------------------------------------------------------------------
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v16.0';
+const BUILD_VERSION = 'v17.0';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -513,6 +521,15 @@ const COMPARE_SVG = `<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://
 // to point right when collapsed.
 const CHEVRON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <polyline points="6 9 12 15 18 9"/>
+</svg>`;
+
+// Glasses glyph for the "currently viewing" count in the top-left corner.
+const GLASSES_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <circle cx="6" cy="13" r="3.5"/>
+  <circle cx="18" cy="13" r="3.5"/>
+  <path d="M9.5 13h5"/>
+  <path d="M2.5 12l1-3c.3-.9 1-1.5 2-1.5"/>
+  <path d="M21.5 12l-1-3c-.3-.9-1-1.5-2-1.5"/>
 </svg>`;
 
 // Apply collapsed state (and inject the chevron icon) as early as
@@ -1899,6 +1916,62 @@ function scheduleAlignedRefresh() {
   }, msToNextMark);
 }
 scheduleAlignedRefresh();
+
+// ---------------------------------------------------------------------
+// "Currently viewing" count (top-left corner) -- a lightweight
+// heartbeat, not a real-time subscription (this app has no WebSocket/
+// realtime layer). Each tab pings the heartbeat endpoint with a random
+// per-tab sessionId every ~25s; the backend upserts a presence doc and
+// returns how many tabs have pinged in the last 90s (see
+// PRESENCE_TIMEOUT_MS in the backend) -- a closed or backgrounded tab
+// just ages out of that count on its own, no disconnect handling needed.
+// Only heartbeats while the tab is actually visible (Page Visibility
+// API), since a backgrounded tab isn't really being "viewed" -- pauses
+// the interval when hidden and sends an immediate ping on becoming
+// visible again, rather than waiting for the next tick.
+// ---------------------------------------------------------------------
+const HEARTBEAT_INTERVAL_MS = 25 * 1000;
+const sessionId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+let heartbeatIntervalId = null;
+
+async function sendHeartbeat() {
+  try {
+    const res = await fetch(HEARTBEAT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    if (!res.ok) return;
+    const { activeCount } = await res.json();
+    if (typeof activeCount !== 'number') return;
+    const el = document.getElementById('viewerCount');
+    el.innerHTML = `${GLASSES_SVG}<span>${activeCount} viewing</span>`;
+    el.hidden = false;
+  } catch (err) {
+    // Non-fatal -- the count just doesn't update this cycle, not worth
+    // surfacing a background nicety's failure to the viewer.
+    console.error('Heartbeat failed:', err.message);
+  }
+}
+
+function startHeartbeat() {
+  if (heartbeatIntervalId) return;
+  sendHeartbeat();
+  heartbeatIntervalId = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+}
+
+function stopHeartbeat() {
+  if (heartbeatIntervalId) {
+    clearInterval(heartbeatIntervalId);
+    heartbeatIntervalId = null;
+  }
+}
+
+if (document.visibilityState === 'visible') startHeartbeat();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') startHeartbeat();
+  else stopHeartbeat();
+});
 </script>
 </body>
 </html>

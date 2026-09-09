@@ -60,13 +60,20 @@ gcloud functions deploy getDashboard \
   --entry-point=getDashboard --trigger-http \
   --allow-unauthenticated \
   --project=fantasy2026
+
+gcloud functions deploy heartbeat \
+  --gen2 --runtime=nodejs22 --region=us-central1 --source=. \
+  --entry-point=heartbeat --trigger-http \
+  --allow-unauthenticated \
+  --project=fantasy2026
 ```
 
-`refreshLeagues` stays private (invoked only by the scheduler below); `getDashboard` is public so the frontend can call it directly.
+`refreshLeagues` stays private (invoked only by the scheduler below); `getDashboard` and `heartbeat` are both public so the frontend can call them directly.
 
-Grab `getDashboard`'s URL for later (the frontend needs it):
+Grab `getDashboard`'s and `heartbeat`'s URLs for later (the frontend needs both):
 ```bash
 gcloud functions describe getDashboard --region=us-central1 --project=fantasy2026 --format="value(serviceConfig.uri)"
+gcloud functions describe heartbeat --region=us-central1 --project=fantasy2026 --format="value(serviceConfig.uri)"
 ```
 
 ## 5. Create a service account for the scheduler
@@ -135,9 +142,10 @@ This generates `.firebaserc`. `firebase.json` should look like:
 
 ## 9. Point the frontend at the backend
 
-In `index.html`, set `DASHBOARD_API_URL` to the `getDashboard` URL from step 4:
+In `index.html`, set `DASHBOARD_API_URL` and `HEARTBEAT_URL` to the URLs from step 4:
 ```js
 const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/getDashboard';
+const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartbeat';
 ```
 
 ## 10. Deploy the frontend
