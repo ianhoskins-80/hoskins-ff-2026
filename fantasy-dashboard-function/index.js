@@ -316,6 +316,7 @@ async function buildLiveScoringBoard(results, gameStatus) {
             playerId: player.id,
             playerName: player.fullName || 'Unknown',
             position: POSITION_NAMES[player.defaultPositionId] || SLOT_NAMES[entry.lineupSlotId] || null,
+            teamId: sideData.teamId,
             teamName: team ? team.name : 'TBD',
             leagueColor: color,
             points,

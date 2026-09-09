@@ -51,7 +51,18 @@
     letter-spacing: 1.2px;
     color: var(--text-dim);
     margin: 36px 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
+  .collapse-toggle {
+    background: none; border: none; padding: 4px; margin: 0; cursor: pointer;
+    color: var(--text-dim); display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 4px;
+  }
+  .collapse-toggle:hover { color: var(--text); background: var(--line); }
+  .collapse-toggle svg { width: 14px; height: 14px; display: block; transition: transform 0.15s; }
+  .collapse-toggle.collapsed svg { transform: rotate(-90deg); }
 
   /* ---- matchups, one block per league ---- */
   .matchup-block { border-radius: 6px; overflow: hidden; margin-bottom: 18px; border: 1px solid var(--line); }
@@ -259,6 +270,10 @@
     display: inline-block; width: 7px; height: 7px; border-radius: 50%;
     background: var(--live); margin-left: 6px; vertical-align: middle;
   }
+  .live-scoring-more { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .live-scoring-more button { font-size: 12px; background: var(--line); color: var(--text); border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; }
+  .live-scoring-more button:hover { background: var(--text-dim); color: var(--bg); }
+  .live-scoring-count { font-size: 11px; color: var(--text-dim); }
   .modal-group-row td {
     padding: 10px 12px 4px; font-size: 10px; text-transform: uppercase;
     letter-spacing: 0.6px; color: var(--text-dim); border-bottom: none;
@@ -299,35 +314,53 @@
   <h1>Hoskins Fantastical Family Football</h1>
   <div class="last-updated" id="lastUpdated">Loading...</div>
 
-  <h2 class="section-title">This Week's Matchups</h2>
-  <div id="matchupsContainer"></div>
-
-  <section id="liveScoringSection" hidden>
-    <h2 class="section-title">Live Scoring</h2>
-    <div id="liveScoringContainer"></div>
+  <section class="page-section" id="matchupsSection">
+    <h2 class="section-title">This Week's Matchups<button type="button" class="collapse-toggle" data-collapse-toggle="matchupsSection" title="Minimize section" aria-label="Minimize section"></button></h2>
+    <div class="section-body" id="matchupsSectionBody">
+      <div id="matchupsContainer"></div>
+    </div>
   </section>
 
-  <h2 class="section-title">Points by Position</h2>
-  <div id="matrixContainer"></div>
+  <section class="page-section" id="liveScoringSection" hidden>
+    <h2 class="section-title">Live Scoring<button type="button" class="collapse-toggle" data-collapse-toggle="liveScoringSection" title="Minimize section" aria-label="Minimize section"></button></h2>
+    <div class="section-body" id="liveScoringSectionBody">
+      <div id="liveScoringContainer"></div>
+    </div>
+  </section>
 
-  <h2 class="section-title">Combined Standings</h2>
-  <div id="standingsFilterContainer"></div>
-  <table>
-    <thead>
-      <tr>
-        <th class="rank-col"></th>
-        <th>Team</th>
-        <th class="num">Record</th>
-        <th class="num">Win%</th>
-        <th class="num">Total Points</th>
-        <th class="num">Playoff Odds</th>
-      </tr>
-    </thead>
-    <tbody id="standingsBody"></tbody>
-  </table>
+  <section class="page-section" id="matrixSection">
+    <h2 class="section-title">Points by Position<button type="button" class="collapse-toggle" data-collapse-toggle="matrixSection" title="Minimize section" aria-label="Minimize section"></button></h2>
+    <div class="section-body" id="matrixSectionBody">
+      <div id="matrixContainer"></div>
+    </div>
+  </section>
 
-  <h2 class="section-title">Standings Trend</h2>
-  <div id="chartContainer"></div>
+  <section class="page-section" id="standingsSection">
+    <h2 class="section-title">Combined Standings<button type="button" class="collapse-toggle" data-collapse-toggle="standingsSection" title="Minimize section" aria-label="Minimize section"></button></h2>
+    <div class="section-body" id="standingsSectionBody">
+      <div id="standingsFilterContainer"></div>
+      <table>
+        <thead>
+          <tr>
+            <th class="rank-col"></th>
+            <th>Team</th>
+            <th class="num">Record</th>
+            <th class="num">Win%</th>
+            <th class="num">Total Points</th>
+            <th class="num">Playoff Odds</th>
+          </tr>
+        </thead>
+        <tbody id="standingsBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="page-section" id="chartSection">
+    <h2 class="section-title">Standings Trend<button type="button" class="collapse-toggle" data-collapse-toggle="chartSection" title="Minimize section" aria-label="Minimize section"></button></h2>
+    <div class="section-body" id="chartSectionBody">
+      <div id="chartContainer"></div>
+    </div>
+  </section>
 
   <div class="build-footer" id="buildFooter"></div>
 </div>
@@ -356,7 +389,7 @@ const DASHBOARD_API_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/ge
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v14.0';
+const BUILD_VERSION = 'v15.0';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -383,6 +416,51 @@ let standingsLeagueFilter = 'all'; // 'all' or a league color -- row filter for 
 let matchupsLeagueFilter = 'all'; // 'all' or a league color -- which league blocks show in This Week's Matchups
 let chartLeagueFilter = 'all'; // 'all' or a league color -- which teams' lines show in the standings chart
 let liveScoringLeagueFilter = 'all'; // 'all' or a league color -- row filter for Live Scoring
+let selectedLiveScoringTeamKeys = new Set(); // multi-select filter state for Live Scoring, same pattern as selectedChartTeamIds
+let liveScoringVisibleCount = 25; // how many (post-filter) rows to show before "Show more"
+
+// ---------------------------------------------------------------------
+// Collapsible sections -- every top-level section (#matchupsSection,
+// #liveScoringSection, #matrixSection, #standingsSection, #chartSection)
+// has a minimize/maximize toggle in its header. Collapsing hides only
+// `.section-body` (the title stays visible), and since the toggle wraps
+// *around* each section's own render function rather than being
+// recreated by it, collapse state survives the 5-min auto-refresh with
+// no extra bookkeeping. Persisted to localStorage (same mechanism as the
+// tour's "seen it" flag) so it also survives a page reload.
+// ---------------------------------------------------------------------
+const COLLAPSE_STORAGE_PREFIX = 'ff-section-collapsed-';
+
+function isSectionCollapsed(sectionId) {
+  try { return localStorage.getItem(COLLAPSE_STORAGE_PREFIX + sectionId) === '1'; } catch (e) { return false; }
+}
+
+function applySectionCollapsed(sectionId, collapsed) {
+  const body = document.getElementById(sectionId + 'Body');
+  const toggle = document.querySelector(`[data-collapse-toggle="${sectionId}"]`);
+  if (body) body.hidden = collapsed;
+  if (toggle) {
+    toggle.classList.toggle('collapsed', collapsed);
+    const label = collapsed ? 'Maximize section' : 'Minimize section';
+    toggle.title = label;
+    toggle.setAttribute('aria-label', label);
+  }
+}
+
+function toggleSectionCollapsed(sectionId) {
+  const collapsed = !isSectionCollapsed(sectionId);
+  applySectionCollapsed(sectionId, collapsed);
+  try { localStorage.setItem(COLLAPSE_STORAGE_PREFIX + sectionId, collapsed ? '1' : '0'); } catch (e) { /* private browsing etc. -- non-fatal, just won't persist */ }
+}
+
+function initCollapsibleSections() {
+  document.querySelectorAll('.collapse-toggle').forEach(btn => {
+    btn.innerHTML = CHEVRON_SVG;
+    const sectionId = btn.dataset.collapseToggle;
+    applySectionCollapsed(sectionId, isSectionCollapsed(sectionId));
+  });
+}
+// Called after CHEVRON_SVG is declared, below -- see the call site there.
 let matrixSelectedWeek = null; // null = always track the current week; a number once the user picks one explicitly
 
 // ESPN-sourced strings (team names, league names, owner names) are
@@ -415,6 +493,18 @@ const COMPARE_SVG = `<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://
   <path d="M2 12l7-6v12z"/>
   <path d="M22 12l-7-6v12z"/>
 </svg>`;
+
+// Chevron used on every section's minimize/maximize toggle -- points
+// down when expanded, rotated -90deg via CSS (.collapse-toggle.collapsed)
+// to point right when collapsed.
+const CHEVRON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <polyline points="6 9 12 15 18 9"/>
+</svg>`;
+
+// Apply collapsed state (and inject the chevron icon) as early as
+// possible, but only once CHEVRON_SVG above actually exists -- the
+// functions themselves are declared earlier, before `let leagues = []`.
+initCollapsibleSections();
 
 // ESPN's numeric IDs for player position, roster slot, and NFL team --
 // not documented anywhere official, but stable and widely relied on.
@@ -632,10 +722,38 @@ function renderLiveScoringBoard() {
 
   const colorsPresent = sortedLeagueColors([...new Set(liveScoring.map(p => p.leagueColor))]);
   const pillsHtml = renderLeagueFilterPills(colorsPresent, liveScoringLeagueFilter, 'live-scoring-filter');
-  const filterActive = colorsPresent.length > 1 && liveScoringLeagueFilter !== 'all';
-  const filteredPlayers = filterActive ? liveScoring.filter(p => p.leagueColor === liveScoringLeagueFilter) : liveScoring;
+  const leagueFilterActive = colorsPresent.length > 1 && liveScoringLeagueFilter !== 'all';
+  const leagueFilteredPlayers = leagueFilterActive ? liveScoring.filter(p => p.leagueColor === liveScoringLeagueFilter) : liveScoring;
 
-  const rowsHtml = filteredPlayers.map(p => {
+  // Team multi-select -- same idea as the standings chart: with 1+ teams
+  // selected, every other team's players are fully hidden (not shown at
+  // all), not just dimmed, so isolating a couple of teams out of many
+  // stays legible. Reuses the existing filter-pill/pill-red/pill-blue
+  // classes so team chips get the same red/blue treatment for free.
+  const teamsPresent = [...new Map(
+    leagueFilteredPlayers.map(p => [`${p.leagueColor}:${p.teamId}`, { key: `${p.leagueColor}:${p.teamId}`, teamName: p.teamName, leagueColor: p.leagueColor }])
+  ).values()].sort((a, b) => a.teamName.localeCompare(b.teamName));
+  const teamFilterActive = selectedLiveScoringTeamKeys.size > 0;
+  const filteredPlayers = teamFilterActive
+    ? leagueFilteredPlayers.filter(p => selectedLiveScoringTeamKeys.has(`${p.leagueColor}:${p.teamId}`))
+    : leagueFilteredPlayers;
+
+  const teamChipsHtml = teamsPresent.length > 1 ? `
+    <div class="filter-pills">
+      ${teamsPresent.map(t => `<button type="button" class="filter-pill pill-${t.leagueColor} ${selectedLiveScoringTeamKeys.has(t.key) ? 'selected' : ''}" data-live-scoring-team="${t.key}" title="Filter to ${escapeHtml(t.teamName)} only">${escapeHtml(t.teamName)}</button>`).join('')}
+      ${teamFilterActive ? '<button type="button" class="chart-reset" id="liveScoringTeamReset">Show all</button>' : ''}
+    </div>` : '';
+
+  // Only the most recent 25 (of whatever's currently filtered) render by
+  // default -- this data can grow to hundreds of rows by the end of a
+  // game, and re-rendering every one of them every 5-min refresh would
+  // both flood the screen and get slower over the course of a Sunday.
+  // liveScoringVisibleCount persists across refreshes (see loadDashboard)
+  // so an expanded view doesn't collapse back to 25 on its own; it only
+  // resets when the filter actually changes, since that's effectively a
+  // new view.
+  const visiblePlayers = filteredPlayers.slice(0, liveScoringVisibleCount);
+  const rowsHtml = visiblePlayers.map(p => {
     const positionLabel = p.position ? escapeHtml(p.position) + ' ' : '';
     const dot = p.justScored ? '<span class="just-scored-dot" title="Scored in the last update"></span>' : '';
     return `
@@ -646,12 +764,21 @@ function renderLiveScoringBoard() {
       </tr>`;
   }).join('');
 
+  const remaining = filteredPlayers.length - visiblePlayers.length;
+  const loadMoreHtml = remaining > 0
+    ? `<div class="live-scoring-more"><button type="button" id="liveScoringLoadMore">Show ${Math.min(25, remaining)} more</button><span class="live-scoring-count">Showing ${visiblePlayers.length} of ${filteredPlayers.length}</span></div>`
+    : filteredPlayers.length > 25
+      ? `<div class="live-scoring-count">Showing all ${filteredPlayers.length}</div>`
+      : '';
+
   document.getElementById('liveScoringContainer').innerHTML = `
     ${pillsHtml}
+    ${teamChipsHtml}
     <table>
       <thead><tr><th>Team</th><th>Player</th><th class="num">Points</th></tr></thead>
       <tbody>${rowsHtml}</tbody>
-    </table>`;
+    </table>
+    ${loadMoreHtml}`;
 }
 
 function renderAll() {
@@ -1581,6 +1708,11 @@ document.addEventListener('click', (e) => {
     else { closeModal(); } // 'skip' or 'finish'
     return;
   }
+  const collapseToggle = e.target.closest('.collapse-toggle');
+  if (collapseToggle) {
+    toggleSectionCollapsed(collapseToggle.dataset.collapseToggle);
+    return;
+  }
   const rosterTrigger = e.target.closest('.roster-trigger');
   if (rosterTrigger) {
     openRosterModal(rosterTrigger.dataset);
@@ -1624,6 +1756,28 @@ document.addEventListener('click', (e) => {
   const liveScoringFilterPill = e.target.closest('[data-live-scoring-filter]');
   if (liveScoringFilterPill) {
     liveScoringLeagueFilter = liveScoringFilterPill.dataset.liveScoringFilter;
+    selectedLiveScoringTeamKeys.clear(); // a new league filter is effectively a new view
+    liveScoringVisibleCount = 25;
+    renderLiveScoringBoard();
+    return;
+  }
+  const liveScoringTeamChip = e.target.closest('[data-live-scoring-team]');
+  if (liveScoringTeamChip) {
+    const key = liveScoringTeamChip.dataset.liveScoringTeam;
+    if (selectedLiveScoringTeamKeys.has(key)) selectedLiveScoringTeamKeys.delete(key);
+    else selectedLiveScoringTeamKeys.add(key);
+    liveScoringVisibleCount = 25;
+    renderLiveScoringBoard();
+    return;
+  }
+  if (e.target.id === 'liveScoringTeamReset') {
+    selectedLiveScoringTeamKeys.clear();
+    liveScoringVisibleCount = 25;
+    renderLiveScoringBoard();
+    return;
+  }
+  if (e.target.id === 'liveScoringLoadMore') {
+    liveScoringVisibleCount += 25;
     renderLiveScoringBoard();
     return;
   }

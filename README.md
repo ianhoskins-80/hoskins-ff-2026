@@ -104,6 +104,7 @@ The frontend is a single static `index.html` with no build step. It:
 - Highlights the team currently leading a live matchup, and the winning side of a completed week, with a subtle background tint (matching the league's red/blue) behind its name and score
 - A small helmet icon next to each team name links out to that team's ESPN page; clicking the team name itself opens a modal (see below)
 - Every clickable element has a hover tooltip describing what it opens
+- **Collapsible sections:** every top-level section (This Week's Matchups, Live Scoring, Points by Position, Combined Standings, Standings Trend) has a minimize/maximize chevron in its header (`CHEVRON_SVG`, rotated via CSS rather than swapped for a different icon). Collapsing hides only that section's `.section-body` — the title stays visible so you can still see and re-expand it. Because the toggle wraps *around* each section's own render function rather than being recreated by it, collapse state survives the 5-min auto-refresh automatically; it's also persisted to `localStorage` (`ff-section-collapsed-<sectionId>`, same mechanism as the onboarding tour's "seen it" flag) so it survives a page reload too.
 
 All of the popups below share one modal component (`#modalBackdrop` / `#modalDialog` in `index.html`) — only the body content differs. It's dismissible via the ✕ button, a backdrop click, or Escape, and renders as a full-width bottom sheet on narrow viewports.
 
@@ -134,6 +135,9 @@ Above "Points by Position," a leaderboard of every rostered **starter** (bench/I
 A small green dot next to a player's name means they scored in the last 5-minute refresh — compares this cycle's points to the previous cycle's, stored in `fantasy-dashboard/live-scoring-prev` (see Firestore above), since a Cloud Function doesn't retain memory between invocations and the indicator is meant to track the backend's own refresh cadence, not "since this browser tab last polled."
 
 Same league-filter pills and red/blue row tinting as every other section (`renderLeagueFilterPills()`, `tr.row-red`/`tr.row-blue`).
+
+- **Team filter:** a second row of pill chips, one per team currently on the board (reuses the same `.filter-pill`/`.pill-red`/`.pill-blue` classes as the league pills, so they get the same red/blue treatment for free) — click one or more to isolate just those teams' players, mirroring the standings chart's team multi-select (`selectedLiveScoringTeamKeys`, a `Set`, same pattern as `selectedChartTeamIds`). "Show all" clears it. Switching the league filter also clears the team selection, since a team selected in a now-hidden league would be a confusing state.
+- **Pagination:** only the top 25 (of whatever's currently filtered) render at a time, with a "Show 25 more" button below and a "Showing X of Y" count — this data can grow to hundreds of rows by the end of a Sunday, and re-rendering all of them every 5-minute refresh would both flood the screen and get slower as the day goes on. `liveScoringVisibleCount` persists across the auto-refresh (an expanded view doesn't collapse back to 25 on its own), but resets to 25 whenever the league or team filter actually changes, since that's effectively a new view.
 
 ### Points by position
 
