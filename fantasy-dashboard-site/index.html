@@ -165,6 +165,10 @@
   .filter-pill.pill-blue { border-color: var(--blue); color: var(--blue); }
   .filter-pill.pill-blue:hover { background: var(--blue-tint); }
   .filter-pill.pill-blue.selected { background: var(--blue-tint-strong); border-color: var(--blue); color: var(--blue); }
+  /* Compact size for team-level (as opposed to league-level) pills --
+     matches .chart-legend-chip's smaller footprint on the standings
+     chart, since a team row can have many more chips than a league row. */
+  .filter-pill.compact { padding: 3px 9px; font-size: 11px; }
   .matrix-scroll { overflow-x: auto; }
   .matrix-scroll table { min-width: 560px; }
   td.matrix-cell { cursor: pointer; }
@@ -402,7 +406,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v17.5';
+const BUILD_VERSION = 'v17.6';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -813,7 +817,7 @@ function renderLiveScoringBoard() {
 
   const teamChipsHtml = teamsPresent.length > 1 ? `
     <div class="filter-pills">
-      ${teamsPresent.map(t => `<button type="button" class="filter-pill pill-${t.leagueColor} ${selectedLiveScoringTeamKeys.has(t.key) ? 'selected' : ''}" data-live-scoring-team="${t.key}" title="Filter to ${escapeHtml(t.teamName)} only">${escapeHtml(t.teamName)}</button>`).join('')}
+      ${teamsPresent.map(t => `<button type="button" class="filter-pill compact pill-${t.leagueColor} ${selectedLiveScoringTeamKeys.has(t.key) ? 'selected' : ''}" data-live-scoring-team="${t.key}" title="Filter to ${escapeHtml(t.teamName)} only">${escapeHtml(t.teamName)}</button>`).join('')}
       ${teamFilterActive ? '<button type="button" class="chart-reset" id="liveScoringTeamReset">Show all</button>' : ''}
     </div>` : '';
 
