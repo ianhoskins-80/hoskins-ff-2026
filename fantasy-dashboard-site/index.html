@@ -49,6 +49,14 @@
   }
   .sub { color: var(--text-dim); font-size: 14px; margin-bottom: 8px; }
 
+  .section-nav { display: flex; flex-wrap: wrap; margin: 4px 0 20px; font-size: 13px; }
+  .section-nav a {
+    color: var(--text-dim); text-decoration: none; padding: 0 12px 0 0; margin-right: 12px;
+    border-right: 1px solid var(--line);
+  }
+  .section-nav a:last-child { border-right: none; margin-right: 0; padding-right: 0; }
+  .section-nav a:hover { color: var(--text); }
+
   .last-updated { color: var(--text-dim); font-size: 12px; margin-bottom: 28px; }
 
   h2.section-title {
@@ -327,6 +335,13 @@
 <div class="viewer-count" id="viewerCount" hidden></div>
 <div class="wrap">
   <h1>Hoskins Fantastical Family Football</h1>
+  <nav class="section-nav" id="sectionNav">
+    <a href="#matchupsSection" data-nav-section="matchupsSection">This Week's Matchups</a>
+    <a href="#liveScoringSection" data-nav-section="liveScoringSection" id="navLiveScoring" hidden>Live Scoring</a>
+    <a href="#matrixSection" data-nav-section="matrixSection">Points by Position</a>
+    <a href="#standingsSection" data-nav-section="standingsSection">Combined Standings</a>
+    <a href="#chartSection" data-nav-section="chartSection">Standings Trend</a>
+  </nav>
   <div class="last-updated" id="lastUpdated">Loading...</div>
 
   <section class="page-section" id="matchupsSection">
@@ -405,7 +420,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v18.0';
+const BUILD_VERSION = 'v18.1';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -782,9 +797,11 @@ function renderLiveScoringBoard() {
   const section = document.getElementById('liveScoringSection');
   if (!liveScoring.length) {
     section.hidden = true;
+    document.getElementById('navLiveScoring').hidden = true;
     return;
   }
   section.hidden = false;
+  document.getElementById('navLiveScoring').hidden = false;
 
   const colorsPresent = sortedLeagueColors([...new Set(liveScoring.map(p => p.leagueColor))]);
   const pillsHtml = renderLeagueFilterPills(colorsPresent, liveScoringLeagueFilter, 'live-scoring-filter');
@@ -1998,6 +2015,20 @@ document.addEventListener('click', (e) => {
   const collapseToggle = e.target.closest('.collapse-toggle');
   if (collapseToggle) {
     toggleSectionCollapsed(collapseToggle.dataset.collapseToggle);
+    return;
+  }
+  const navLink = e.target.closest('[data-nav-section]');
+  if (navLink) {
+    e.preventDefault();
+    const sectionId = navLink.dataset.navSection;
+    // A collapsed section has nothing to see once scrolled to -- expand
+    // it first (persisting like any other manual expand) so the nav
+    // always lands somewhere with content, not a bare collapsed header.
+    if (isSectionCollapsed(sectionId)) {
+      applySectionCollapsed(sectionId, false);
+      try { localStorage.setItem(COLLAPSE_STORAGE_PREFIX + sectionId, '0'); } catch (e) { /* non-fatal */ }
+    }
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
   }
   const rosterTrigger = e.target.closest('.roster-trigger');
