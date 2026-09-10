@@ -447,7 +447,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v18.3';
+const BUILD_VERSION = 'v18.4';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -2251,8 +2251,21 @@ function stopHeartbeat() {
 
 if (document.visibilityState === 'visible') startHeartbeat();
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') startHeartbeat();
-  else stopHeartbeat();
+  if (document.visibilityState === 'visible') {
+    startHeartbeat();
+    // The dashboard's own 5-min refresh (scheduleAlignedRefresh, above)
+    // is a bare setInterval, which browsers throttle or fully suspend in
+    // a backgrounded tab -- unlike the heartbeat, it has no built-in way
+    // to catch up once that happens, so a tab left in the background
+    // across a 5-min mark can sit on stale data well past when it
+    // should've refreshed, not just briefly. Firing an immediate
+    // loadDashboard() here means the moment a viewer actually looks at
+    // the tab again, it's current -- rather than waiting for whatever's
+    // left of the throttled interval's next (possibly very delayed) tick.
+    loadDashboard();
+  } else {
+    stopHeartbeat();
+  }
 });
 </script>
 </body>
