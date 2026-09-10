@@ -173,6 +173,11 @@
   tr.matrix-total-row { font-weight: 700; border-top: 2px solid var(--line); }
   tr.matrix-total-row td { background: var(--card); }
   tr.matrix-total-row td.matrix-cell:hover { background: var(--line); }
+  /* A team's own Total column, and the Total row's Total corner cell --
+     bold like the rest of a "total", but deliberately not .matrix-cell:
+     neither has one position or one team to hand the click-to-modal
+     handlers, so no cursor/hover affordance either. */
+  td.matrix-row-total-cell { font-weight: 700; }
 
   /* ---- standings trend chart ---- */
   .chart-wrap { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
@@ -400,7 +405,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v17.9';
+const BUILD_VERSION = 'v18.0';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -1021,12 +1026,15 @@ function buildPositionMatrixRowsLive(week) {
           bucket.players.push({ name: player.fullName || 'Empty', actual, projected });
         });
 
+        const finalizedPositions = finalizePositionBuckets(positions);
         rows.push({
           key: `${color}:${sideData.teamId}`,
+          teamId: sideData.teamId,
           teamName: team ? team.name : 'TBD',
           owner: team ? memberName(data, team.primaryOwner) : '',
           leagueColor: color,
-          positions: finalizePositionBuckets(positions),
+          positions: finalizedPositions,
+          rowTotal: computeRowTotal(finalizedPositions),
         });
       });
     });
@@ -1054,14 +1062,20 @@ function buildPositionMatrixRowsFromHistory(week) {
       bucket.projectedSum += p.actual != null ? p.actual : (p.projected != null ? p.projected : 0);
       bucket.players.push({ name: p.name, actual: p.actual, projected: p.projected });
     });
+    const finalizedPositions = finalizePositionBuckets(positions);
     return {
       key,
+      // Compound key is `${leagueColor}:${teamId}` -- the raw numeric id
+      // isn't stored separately in a roster-history snapshot, so pull it
+      // back out for teamLineColorForTeam() to key off.
+      teamId: Number(key.split(':')[1]),
       teamName: teamData.teamName,
       // Snapshots taken before the owner field shipped won't have it --
       // toTitleCase('') is just '', so the span renders empty rather than erroring.
       owner: toTitleCase(teamData.owner || ''),
       leagueColor: teamData.leagueColor,
-      positions: finalizePositionBuckets(positions),
+      positions: finalizedPositions,
+      rowTotal: computeRowTotal(finalizedPositions),
     };
   });
 }
@@ -1121,6 +1135,57 @@ function computePositionTotals(rows, position) {
   return { total, allActual, hasActual, players };
 }
 
+// One team's Total column -- same actual-only-once-anyone's-played rule
+// as a single position bucket or the column Total row above, but spanning
+// every position THIS team has starters at, instead of one position
+// across every team. Deliberately recomputes from each starter's raw
+// actual/projected value rather than summing the position buckets' own
+// already-finalized totals (bucket.total) -- a team can easily have one
+// position that's already real (its starter has played) and another
+// that's still a pure projection (theirs hasn't), and summing those
+// decided totals would reproduce the exact same blended-and-inflated bug
+// computePositionTotals was fixed for, just scoped to one team's row
+// instead of the whole column.
+function computeRowTotal(positions) {
+  let actualSum = 0;
+  let projectedSum = 0;
+  let hasActual = false;
+  Object.values(positions).forEach(bucket => {
+    bucket.players.forEach(p => {
+      if (p.actual != null) {
+        actualSum += p.actual;
+        hasActual = true;
+      }
+      projectedSum += p.actual != null ? p.actual : (p.projected != null ? p.projected : 0);
+    });
+  });
+  return { total: hasActual ? actualSum : projectedSum, hasActual };
+}
+
+// The Total row's own Total column (bottom-right corner) -- every
+// player, every position, every visible team, same hasActual-gated rule
+// one level up again. Same reasoning as computeRowTotal: summing each
+// row's already-decided rowTotal would blend a team whose rowTotal has
+// gone real with one that's still a pure projection, so this recomputes
+// from every player's raw actual/projected value directly instead.
+function computeGrandTotal(rows) {
+  let actualSum = 0;
+  let projectedSum = 0;
+  let hasActual = false;
+  rows.forEach(row => {
+    Object.values(row.positions).forEach(bucket => {
+      bucket.players.forEach(p => {
+        if (p.actual != null) {
+          actualSum += p.actual;
+          hasActual = true;
+        }
+        projectedSum += p.actual != null ? p.actual : (p.projected != null ? p.projected : 0);
+      });
+    });
+  });
+  return { total: hasActual ? actualSum : projectedSum, hasActual };
+}
+
 function renderPositionMatrix() {
   const container = document.getElementById('matrixContainer');
 
@@ -1157,8 +1222,14 @@ function renderPositionMatrix() {
     ? `<div class="matchup-caveat">From the Week ${effectiveWeek} roster snapshot, captured that week.</div>`
     : '';
 
-  const headerCells = POSITION_COLUMNS.map(p => `<th class="num">${p}</th>`).join('');
+  const headerCells = POSITION_COLUMNS.map(p => `<th class="num">${p}</th>`).join('') + '<th class="num">Total</th>';
   const bodyRows = filteredRows.map(row => {
+    // Real (non-projected) numbers are colored in this team's own shade --
+    // the same teamLineColorForTeam() used for its team-filter chip and
+    // Live Scoring name -- so a team reads as the same color everywhere on
+    // the page. Only applied when hasActual (a real number); a projected
+    // cell keeps its existing dim italic treatment instead, unchanged.
+    const teamColor = teamLineColorForTeam(row.leagueColor, row.teamId);
     const cells = POSITION_COLUMNS.map(pos => {
       const bucket = row.positions[pos];
       if (!bucket.players.length) return '<td class="num">—</td>';
@@ -1174,9 +1245,26 @@ function renderPositionMatrix() {
       // yet. Italicizing a fully-real number as if it were a guess was
       // the actual bug, not just its label.
       const cls = bucket.hasActual ? 'matrix-cell' : 'matrix-cell matrix-projected';
-      return `<td class="num ${cls}" data-team-key="${row.key}" data-position="${pos}" title="${escapeHtml(breakdown)}">${bucket.total.toFixed(1)}</td>`;
+      const style = bucket.hasActual ? ` style="color:${teamColor}"` : '';
+      return `<td class="num ${cls}" data-team-key="${row.key}" data-position="${pos}"${style} title="${escapeHtml(breakdown)}">${bucket.total.toFixed(1)}</td>`;
     }).join('');
-    return `<tr class="row-${row.leagueColor}"><td>${escapeHtml(row.teamName)}<span class="team-owner">${escapeHtml(row.owner)}</span></td>${cells}</tr>`;
+    // Row Total -- same hasActual-gated rule as every other total in this
+    // table (computeRowTotal, above), spanning all of this team's own
+    // positions rather than one position across every team. Deliberately
+    // NOT given the matrix-cell/matrix-total-cell classes -- both are
+    // wired to click-to-modal handlers keyed by data-position, and this
+    // cell has no single position to hand them; matrix-row-total-cell is
+    // just a bold style, no click behavior. A hover tooltip breaks the
+    // total down by position instead, same reason the other cells have one.
+    const rowTotalBreakdown = POSITION_COLUMNS
+      .map(pos => ({ pos, bucket: row.positions[pos] }))
+      .filter(({ bucket }) => bucket.players.length)
+      .map(({ pos, bucket }) => `${pos}: ${bucket.total.toFixed(1)}${bucket.hasActual ? '' : ' (proj)'}`)
+      .join('\n');
+    const rowTotalCls = row.rowTotal.hasActual ? 'matrix-row-total-cell' : 'matrix-row-total-cell matrix-projected';
+    const rowTotalStyle = row.rowTotal.hasActual ? ` style="color:${teamColor}"` : '';
+    const rowTotalCell = `<td class="num ${rowTotalCls}"${rowTotalStyle} title="${escapeHtml(rowTotalBreakdown)}">${row.rowTotal.total.toFixed(1)}</td>`;
+    return `<tr class="row-${row.leagueColor}"><td>${escapeHtml(row.teamName)}<span class="team-owner">${escapeHtml(row.owner)}</span></td>${cells}${rowTotalCell}</tr>`;
   }).join('');
 
   const totalCells = POSITION_COLUMNS.map(pos => {
@@ -1185,7 +1273,13 @@ function renderPositionMatrix() {
     const cls = t.hasActual ? 'matrix-cell matrix-total-cell' : 'matrix-cell matrix-total-cell matrix-projected';
     return `<td class="num ${cls}" data-position="${pos}" title="Click for the full breakdown across all teams">${t.total.toFixed(1)}</td>`;
   }).join('');
-  const totalRowHtml = `<tr class="matrix-total-row"><td>Total</td>${totalCells}</tr>`;
+  // Bottom-right corner: every team's Total column, same hasActual-gated
+  // rule, no single team or position to attribute it to -- so like the
+  // per-row Total cells, no team color and no click-to-modal.
+  const grandTotal = computeGrandTotal(filteredRows);
+  const grandTotalCls = grandTotal.hasActual ? 'matrix-row-total-cell' : 'matrix-row-total-cell matrix-projected';
+  const grandTotalCell = `<td class="num ${grandTotalCls}">${grandTotal.total.toFixed(1)}</td>`;
+  const totalRowHtml = `<tr class="matrix-total-row"><td>Total</td>${totalCells}${grandTotalCell}</tr>`;
 
   container.innerHTML = `
     <div class="matrix-controls-row">${pillsHtml}${weekSelectHtml}</div>
