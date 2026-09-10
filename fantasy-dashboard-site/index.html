@@ -56,6 +56,23 @@
   }
   .section-nav a:last-child { border-right: none; margin-right: 0; padding-right: 0; }
   .section-nav a:hover { color: var(--text); }
+  /* "On the air" style slow pulse while a game's actually live -- the
+     link only exists in the DOM while #liveScoringSection itself is
+     showing something (see renderLiveScoringBoard), so the pulse and
+     the section's own visibility always agree. */
+  #navLiveScoring {
+    color: var(--live); font-weight: 700;
+    animation: navLivePulse 2.2s ease-in-out infinite;
+  }
+  #navLiveScoring:hover { color: var(--live); }
+  #navLiveScoring::before {
+    content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--live); margin-right: 6px; vertical-align: middle;
+  }
+  @keyframes navLivePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @media (prefers-reduced-motion: reduce) {
+    #navLiveScoring { animation: none; }
+  }
 
   .last-updated { color: var(--text-dim); font-size: 12px; margin-bottom: 28px; }
 
@@ -420,7 +437,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v18.1';
+const BUILD_VERSION = 'v18.2';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
