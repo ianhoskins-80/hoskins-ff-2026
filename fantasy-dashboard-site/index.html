@@ -315,10 +315,15 @@
     border: 1px solid var(--warn); border-radius: 3px; padding: 0 3px; margin-left: 4px;
     vertical-align: middle; line-height: 1.4;
   }
-  .just-scored-dot {
-    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-    background: var(--live); margin-left: 6px; vertical-align: middle;
-  }
+  /* Trend arrow -- up (green) when a player's points increased since the
+     last refresh, down (red) on the rarer stat-correction decrease.
+     Pure CSS triangles (border trick), same lightweight approach as the
+     dot this replaced -- no new SVG asset needed. */
+  .trend-arrow { display: inline-block; width: 0; height: 0; margin-left: 6px; vertical-align: middle; }
+  .trend-arrow.up { border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 6px solid var(--live); }
+  .trend-arrow.down { border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid var(--red); }
+  .live-scoring-team-name { display: block; }
+  .live-scoring-team-name + .live-scoring-team-name { margin-top: 2px; }
   .live-scoring-more { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
   .live-scoring-more button { font-size: 12px; background: var(--line); color: var(--text); border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; }
   .live-scoring-more button:hover { background: var(--text-dim); color: var(--bg); }
@@ -447,7 +452,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v18.6';
+const BUILD_VERSION = 'v19.0';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -477,7 +482,7 @@ setTimeout(() => {
 let leagues = []; // populated from the API: [{ color, data }]
 let standingsHistory = []; // populated from the API: [{ week, snapshotAt, standings: [...] }]
 let rosterHistory = []; // populated from the API: [{ week, snapshotAt, teams: { "color:teamId": { teamName, leagueColor, players } } }]
-let liveScoring = []; // populated from the API: [{ playerId, playerName, position, teamName, leagueColor, points, justScored }]
+let liveScoring = []; // populated from the API: [{ playerId, playerName, position, nflTeam, teamId, teamName, leagueColor, points, trend }] -- trend is 'up' | 'down' | null
 let gameStatus = {}; // populated from the API: { [nflTeamAbbr]: { state: 'pre'|'in'|'post', secondsRemaining } }
 let selectedChartTeamIds = new Set(); // multi-select filter state for the standings chart
 let matrixLeagueFilter = 'all'; // 'all' or a league color -- row filter for the points-by-position matrix
@@ -802,14 +807,20 @@ function groupLiveScoringByPlayer(players) {
         playerId: p.playerId,
         playerName: p.playerName,
         position: p.position,
+        nflTeam: p.nflTeam,
         points: p.points,
-        justScored: p.justScored,
+        trend: p.trend,
         teams: [],
       });
     }
     byPlayer.get(p.playerId).teams.push({ teamId: p.teamId, teamName: p.teamName, leagueColor: p.leagueColor });
   });
-  return [...byPlayer.values()];
+  const grouped = [...byPlayer.values()];
+  // Ascending by team name -- a shared player's teams otherwise stayed in
+  // whatever order the backend happened to encounter them (league, then
+  // home/away), not a meaningful order to read.
+  grouped.forEach(p => p.teams.sort((a, b) => a.teamName.localeCompare(b.teamName)));
+  return grouped;
 }
 
 // Live Scoring -- every rostered starter whose real NFL team is currently
@@ -876,18 +887,29 @@ function renderLiveScoringBoard() {
   // new view.
   const visiblePlayers = displayPlayers.slice(0, liveScoringVisibleCount);
   const rowsHtml = visiblePlayers.map(p => {
-    const positionLabel = p.position ? escapeHtml(p.position) + ' ' : '';
-    const dot = p.justScored ? '<span class="just-scored-dot" title="Scored in the last update"></span>' : '';
+    // Name - NFL team - position (was "Position Name") -- degrades
+    // gracefully (just the name, or name - team) if either's missing,
+    // rather than assuming both are always resolvable.
+    const nameParts = [escapeHtml(p.playerName)];
+    if (p.nflTeam) nameParts.push(escapeHtml(p.nflTeam));
+    if (p.position) nameParts.push(escapeHtml(p.position));
+    const nameLabel = nameParts.join(' - ');
+    const trendArrow = p.trend === 'up' ? '<span class="trend-arrow up" title="Increased since the last update"></span>'
+      : p.trend === 'down' ? '<span class="trend-arrow down" title="Decreased since the last update"></span>'
+      : '';
     // Rows themselves stay plain (no red/blue background tint) -- only
     // the team name text is color-coded, using the exact same per-team
     // shade as the team-filter chips/chart legend (teamLineColorForTeam),
     // not just a flat league red/blue, so a team reads as the same color
-    // everywhere it appears on the page.
-    const teamsHtml = p.teams.map(t => `<span class="live-scoring-team-name" style="color:${teamLineColorForTeam(t.leagueColor, t.teamId)}">${escapeHtml(t.teamName)}</span>`).join(', ');
+    // everywhere it appears on the page. Teams (already sorted ascending
+    // in groupLiveScoringByPlayer) each render as their own block-level
+    // span, so a shared player's teams stack on separate lines instead of
+    // a comma-separated "Team1, Team2".
+    const teamsHtml = p.teams.map(t => `<span class="live-scoring-team-name" style="color:${teamLineColorForTeam(t.leagueColor, t.teamId)}">${escapeHtml(t.teamName)}</span>`).join('');
     return `
       <tr>
         <td>${teamsHtml}</td>
-        <td>${positionLabel}${escapeHtml(p.playerName)}${dot}</td>
+        <td>${nameLabel}${trendArrow}</td>
         <td class="num">${p.points.toFixed(1)}</td>
       </tr>`;
   }).join('');
