@@ -29,11 +29,23 @@
     background: var(--bg);
     color: var(--text);
     font-family: 'Helvetica Neue', Arial, sans-serif;
-    padding: 28px 20px 60px;
+    /* Top padding cleared to sit below the two stacked fixed corner
+       badges (last-updated + viewer-count, bottom edge at 44px) --
+       otherwise the h1 (which used to start right where a single badge
+       ended) would run underneath the now-taller two-line stack. */
+    padding: 56px 20px 60px;
   }
   .wrap { max-width: 1000px; margin: 0 auto; }
-  .viewer-count {
+  /* Fixed to the corner (not in the normal document flow) so both stay
+     visible while scrolling -- last-updated sits above the viewer count,
+     same left edge and z-index, stacked with just enough top offset to
+     clear its own line height. */
+  .last-updated {
     position: fixed; top: 10px; left: 10px; z-index: 50;
+    color: var(--text-dim); font-size: 12px;
+  }
+  .viewer-count {
+    position: fixed; top: 30px; left: 10px; z-index: 50;
     display: flex; align-items: center; gap: 5px;
     font-size: 11px; color: var(--text-dim);
   }
@@ -49,7 +61,7 @@
   }
   .sub { color: var(--text-dim); font-size: 14px; margin-bottom: 8px; }
 
-  .section-nav { display: flex; flex-wrap: wrap; margin: 4px 0 20px; font-size: 13px; }
+  .section-nav { display: flex; flex-wrap: wrap; margin: 4px 0 32px; font-size: 13px; }
   .section-nav a {
     color: var(--text-dim); text-decoration: none; padding: 0 12px 0 0; margin-right: 12px;
     border-right: 1px solid var(--line);
@@ -73,8 +85,6 @@
   @media (prefers-reduced-motion: reduce) {
     #navLiveScoring { animation: none; }
   }
-
-  .last-updated { color: var(--text-dim); font-size: 12px; margin-bottom: 28px; }
 
   h2.section-title {
     font-size: 13px;
@@ -349,6 +359,7 @@
 </style>
 </head>
 <body>
+<div class="last-updated" id="lastUpdated">Loading...</div>
 <div class="viewer-count" id="viewerCount" hidden></div>
 <div class="wrap">
   <h1>Hoskins Fantastical Family Football</h1>
@@ -359,7 +370,6 @@
     <a href="#standingsSection" data-nav-section="standingsSection">Combined Standings</a>
     <a href="#chartSection" data-nav-section="chartSection">Standings Trend</a>
   </nav>
-  <div class="last-updated" id="lastUpdated">Loading...</div>
 
   <section class="page-section" id="matchupsSection">
     <h2 class="section-title">This Week's Matchups<button type="button" class="collapse-toggle" data-collapse-toggle="matchupsSection" title="Minimize section" aria-label="Minimize section"></button></h2>
@@ -437,7 +447,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v18.2';
+const BUILD_VERSION = 'v18.3';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
