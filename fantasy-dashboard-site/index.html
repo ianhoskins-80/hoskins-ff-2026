@@ -402,7 +402,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v17.1';
+const BUILD_VERSION = 'v17.2';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -956,7 +956,7 @@ function getRosterHistoryWeek(week) {
 
 function emptyPositionBuckets() {
   const positions = {};
-  POSITION_COLUMNS.forEach(p => { positions[p] = { total: 0, allProjected: true, players: [] }; });
+  POSITION_COLUMNS.forEach(p => { positions[p] = { total: 0, allActual: true, players: [] }; });
   return positions;
 }
 
@@ -985,7 +985,15 @@ function buildPositionMatrixRowsLive(week) {
           if (!bucket) return; // unmapped position -- skip rather than error
           const { actual, projected } = playerPointsRaw(player, week);
           bucket.total += actual != null ? actual : (projected != null ? projected : 0);
-          if (actual != null) bucket.allProjected = false;
+          // Was `if (actual != null) allProjected = false` -- flipped to
+          // false the moment ANY player in the group had posted a real
+          // stat, even while others were still purely projected. That let
+          // a cell summing e.g. one real 2.3 + two still-projected values
+          // render as a solid (non-italic) total indistinguishable from a
+          // fully-real one, overstating "points scored so far." allActual
+          // only stays true once *every* contributing player has an
+          // actual stat.
+          if (actual == null) bucket.allActual = false;
           bucket.players.push({ name: player.fullName || 'Empty', actual, projected });
         });
 
@@ -1015,7 +1023,7 @@ function buildPositionMatrixRowsFromHistory(week) {
       if (!bucket) return;
       const value = p.actual != null ? p.actual : (p.projected != null ? p.projected : 0);
       bucket.total += value;
-      if (p.actual != null) bucket.allProjected = false;
+      if (p.actual == null) bucket.allActual = false;
       bucket.players.push({ name: p.name, actual: p.actual, projected: p.projected });
     });
     return {
@@ -1051,16 +1059,16 @@ function filterMatrixRowsByLeague(rows, leagueColorsPresent) {
 // it came from) for the "all teams" breakdown modal.
 function computePositionTotals(rows, position) {
   let total = 0;
-  let allProjected = true;
+  let allActual = true;
   const players = [];
   rows.forEach(row => {
     const bucket = row.positions[position];
     if (!bucket || !bucket.players.length) return;
     total += bucket.total;
-    if (!bucket.allProjected) allProjected = false;
+    if (!bucket.allActual) allActual = false;
     bucket.players.forEach(p => players.push({ ...p, teamName: row.teamName, leagueColor: row.leagueColor }));
   });
-  return { total, allProjected, players };
+  return { total, allActual, players };
 }
 
 function renderPositionMatrix() {
@@ -1107,7 +1115,7 @@ function renderPositionMatrix() {
       const breakdown = bucket.players
         .map(p => `${p.name}: ${(p.actual ?? p.projected ?? 0).toFixed(1)}${p.actual == null ? ' (proj)' : ''}`)
         .join('\n');
-      const cls = bucket.allProjected ? 'matrix-cell matrix-projected' : 'matrix-cell';
+      const cls = bucket.allActual ? 'matrix-cell' : 'matrix-cell matrix-projected';
       return `<td class="num ${cls}" data-team-key="${row.key}" data-position="${pos}" title="${escapeHtml(breakdown)}">${bucket.total.toFixed(1)}</td>`;
     }).join('');
     return `<tr class="row-${row.leagueColor}"><td>${escapeHtml(row.teamName)}<span class="team-owner">${escapeHtml(row.owner)}</span></td>${cells}</tr>`;
@@ -1116,7 +1124,7 @@ function renderPositionMatrix() {
   const totalCells = POSITION_COLUMNS.map(pos => {
     const t = computePositionTotals(filteredRows, pos);
     if (!t.players.length) return '<td class="num">—</td>';
-    const cls = t.allProjected ? 'matrix-cell matrix-total-cell matrix-projected' : 'matrix-cell matrix-total-cell';
+    const cls = t.allActual ? 'matrix-cell matrix-total-cell' : 'matrix-cell matrix-total-cell matrix-projected';
     return `<td class="num ${cls}" data-position="${pos}" title="Click for the full breakdown across all teams">${t.total.toFixed(1)}</td>`;
   }).join('');
   const totalRowHtml = `<tr class="matrix-total-row"><td>Total</td>${totalCells}</tr>`;
@@ -1130,6 +1138,15 @@ function renderPositionMatrix() {
         <tbody>${bodyRows}${totalRowHtml}</tbody>
       </table>
     </div>`;
+}
+
+// Labels a position total as "(projected)" when nobody contributing has
+// played yet, "(partial)" when some have and some haven't -- so the
+// total isn't fully real, but isn't a pure projection either -- or
+// nothing at all once everyone has.
+function positionTotalSuffix(allActual, hasAnyActual, hasAnyPlayers) {
+  if (!hasAnyPlayers || allActual) return '';
+  return hasAnyActual ? ' (partial)' : ' (projected)';
 }
 
 function openPositionCellModal({ teamKey, position }) {
@@ -1149,9 +1166,10 @@ function openPositionCellModal({ teamKey, position }) {
         </tr>`).join('')
     : '<tr><td colspan="3" class="empty-note">No starters at this position.</td></tr>';
 
+  const hasAnyActual = bucket.players.some(p => p.actual != null);
   openModal({
     title: `${row.teamName} — ${position}`,
-    subtitle: `Week ${effectiveWeek} — Total: ${bucket.total.toFixed(1)}${bucket.allProjected && bucket.players.length ? ' (projected)' : ''}`,
+    subtitle: `Week ${effectiveWeek} — Total: ${bucket.total.toFixed(1)}${positionTotalSuffix(bucket.allActual, hasAnyActual, bucket.players.length > 0)}`,
     bodyHtml: `<table><thead><tr><th>Player</th><th class="num">Proj</th><th class="num">Actual</th></tr></thead><tbody>${playerRows}</tbody></table>`,
     color: row.leagueColor,
   });
@@ -1167,7 +1185,8 @@ function openPositionTotalModal(position) {
   const rows = buildPositionMatrixRows(effectiveWeek);
   const leagueColorsPresent = [...new Set(rows.map(r => r.leagueColor))];
   const filteredRows = filterMatrixRowsByLeague(rows, leagueColorsPresent);
-  const { total, allProjected, players } = computePositionTotals(filteredRows, position);
+  const { total, allActual, players } = computePositionTotals(filteredRows, position);
+  const hasAnyActual = players.some(p => p.actual != null);
 
   const sortedPlayers = [...players].sort((a, b) => a.teamName.localeCompare(b.teamName));
 
@@ -1183,7 +1202,7 @@ function openPositionTotalModal(position) {
 
   openModal({
     title: `All Teams — ${position}`,
-    subtitle: `Week ${effectiveWeek} — Total: ${total.toFixed(1)}${allProjected && sortedPlayers.length ? ' (projected)' : ''}`,
+    subtitle: `Week ${effectiveWeek} — Total: ${total.toFixed(1)}${positionTotalSuffix(allActual, hasAnyActual, sortedPlayers.length > 0)}`,
     bodyHtml: `<table><thead><tr><th>Player</th><th>Team</th><th class="num">Proj</th><th class="num">Actual</th></tr></thead><tbody>${playerRows}</tbody></table>`,
     color: null,
   });
