@@ -402,7 +402,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v17.3';
+const BUILD_VERSION = 'v17.4';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -1081,15 +1081,17 @@ function filterMatrixRowsByLeague(rows, leagueColorsPresent) {
 function computePositionTotals(rows, position) {
   let total = 0;
   let allActual = true;
+  let hasActual = false;
   const players = [];
   rows.forEach(row => {
     const bucket = row.positions[position];
     if (!bucket || !bucket.players.length) return;
     total += bucket.total;
     if (!bucket.allActual) allActual = false;
+    if (bucket.hasActual) hasActual = true;
     bucket.players.forEach(p => players.push({ ...p, teamName: row.teamName, leagueColor: row.leagueColor }));
   });
-  return { total, allActual, players };
+  return { total, allActual, hasActual, players };
 }
 
 function renderPositionMatrix() {
@@ -1136,7 +1138,15 @@ function renderPositionMatrix() {
       const breakdown = bucket.players
         .map(p => `${p.name}: ${(p.actual ?? p.projected ?? 0).toFixed(1)}${p.actual == null ? ' (proj)' : ''}`)
         .join('\n');
-      const cls = bucket.allActual ? 'matrix-cell' : 'matrix-cell matrix-projected';
+      // Italic (matrix-projected) means "this number is a projection" --
+      // only true while hasActual is false (nobody's played, so the
+      // total is a pure estimate). A "partial" bucket (some played,
+      // some haven't) is NOT italicized even though allActual is false,
+      // since its total is 100% real data now (actual-only, see
+      // finalizePositionBuckets) -- just not everyone's final tally
+      // yet. Italicizing a fully-real number as if it were a guess was
+      // the actual bug, not just its label.
+      const cls = bucket.hasActual ? 'matrix-cell' : 'matrix-cell matrix-projected';
       return `<td class="num ${cls}" data-team-key="${row.key}" data-position="${pos}" title="${escapeHtml(breakdown)}">${bucket.total.toFixed(1)}</td>`;
     }).join('');
     return `<tr class="row-${row.leagueColor}"><td>${escapeHtml(row.teamName)}<span class="team-owner">${escapeHtml(row.owner)}</span></td>${cells}</tr>`;
@@ -1145,7 +1155,7 @@ function renderPositionMatrix() {
   const totalCells = POSITION_COLUMNS.map(pos => {
     const t = computePositionTotals(filteredRows, pos);
     if (!t.players.length) return '<td class="num">—</td>';
-    const cls = t.allActual ? 'matrix-cell matrix-total-cell' : 'matrix-cell matrix-total-cell matrix-projected';
+    const cls = t.hasActual ? 'matrix-cell matrix-total-cell' : 'matrix-cell matrix-total-cell matrix-projected';
     return `<td class="num ${cls}" data-position="${pos}" title="Click for the full breakdown across all teams">${t.total.toFixed(1)}</td>`;
   }).join('');
   const totalRowHtml = `<tr class="matrix-total-row"><td>Total</td>${totalCells}</tr>`;
