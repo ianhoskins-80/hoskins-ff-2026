@@ -402,7 +402,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v17.2';
+const BUILD_VERSION = 'v17.3';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -956,7 +956,27 @@ function getRosterHistoryWeek(week) {
 
 function emptyPositionBuckets() {
   const positions = {};
-  POSITION_COLUMNS.forEach(p => { positions[p] = { total: 0, allActual: true, players: [] }; });
+  POSITION_COLUMNS.forEach(p => { positions[p] = { actualSum: 0, projectedSum: 0, hasActual: false, hasUnplayed: false, players: [] }; });
+  return positions;
+}
+
+// A position cell's total should be "points actually scored so far,"
+// not a number padded with projections for players who haven't played
+// yet -- summing actual-where-available + projected-as-filler (the
+// original approach) let one real stat among several still-projected
+// players produce a solid-looking total that was mostly a guess. Once
+// *any* player in the group has actually played, the total is the sum
+// of real stats ONLY (unplayed players contribute nothing, not their
+// projection); only while literally nobody has played yet does it fall
+// back to the summed projection, as a pre-kickoff estimate. Called once
+// per bucket after every player's been added (buckets accumulate both
+// sums as they go, since which one to use isn't known until the whole
+// group's been seen).
+function finalizePositionBuckets(positions) {
+  Object.values(positions).forEach(bucket => {
+    bucket.total = bucket.hasActual ? bucket.actualSum : bucket.projectedSum;
+    bucket.allActual = bucket.hasActual && !bucket.hasUnplayed;
+  });
   return positions;
 }
 
@@ -984,16 +1004,13 @@ function buildPositionMatrixRowsLive(week) {
           const bucket = positions[posKey];
           if (!bucket) return; // unmapped position -- skip rather than error
           const { actual, projected } = playerPointsRaw(player, week);
-          bucket.total += actual != null ? actual : (projected != null ? projected : 0);
-          // Was `if (actual != null) allProjected = false` -- flipped to
-          // false the moment ANY player in the group had posted a real
-          // stat, even while others were still purely projected. That let
-          // a cell summing e.g. one real 2.3 + two still-projected values
-          // render as a solid (non-italic) total indistinguishable from a
-          // fully-real one, overstating "points scored so far." allActual
-          // only stays true once *every* contributing player has an
-          // actual stat.
-          if (actual == null) bucket.allActual = false;
+          if (actual != null) {
+            bucket.actualSum += actual;
+            bucket.hasActual = true;
+          } else {
+            bucket.hasUnplayed = true;
+          }
+          bucket.projectedSum += actual != null ? actual : (projected != null ? projected : 0);
           bucket.players.push({ name: player.fullName || 'Empty', actual, projected });
         });
 
@@ -1002,7 +1019,7 @@ function buildPositionMatrixRowsLive(week) {
           teamName: team ? team.name : 'TBD',
           owner: team ? memberName(data, team.primaryOwner) : '',
           leagueColor: color,
-          positions,
+          positions: finalizePositionBuckets(positions),
         });
       });
     });
@@ -1021,9 +1038,13 @@ function buildPositionMatrixRowsFromHistory(week) {
       if (p.slot !== 'starter') return;
       const bucket = positions[p.position];
       if (!bucket) return;
-      const value = p.actual != null ? p.actual : (p.projected != null ? p.projected : 0);
-      bucket.total += value;
-      if (p.actual == null) bucket.allActual = false;
+      if (p.actual != null) {
+        bucket.actualSum += p.actual;
+        bucket.hasActual = true;
+      } else {
+        bucket.hasUnplayed = true;
+      }
+      bucket.projectedSum += p.actual != null ? p.actual : (p.projected != null ? p.projected : 0);
       bucket.players.push({ name: p.name, actual: p.actual, projected: p.projected });
     });
     return {
@@ -1033,7 +1054,7 @@ function buildPositionMatrixRowsFromHistory(week) {
       // toTitleCase('') is just '', so the span renders empty rather than erroring.
       owner: toTitleCase(teamData.owner || ''),
       leagueColor: teamData.leagueColor,
-      positions,
+      positions: finalizePositionBuckets(positions),
     };
   });
 }
