@@ -138,7 +138,7 @@ This generates `.firebaserc`. `firebase.json` should look like:
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "headers": [
       {
-        "source": "/index.html",
+        "source": "**",
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
       }
     ]
@@ -146,7 +146,7 @@ This generates `.firebaserc`. `firebase.json` should look like:
 }
 ```
 
-The `headers` block overrides Firebase Hosting's default hour-long cache on `index.html` (there's nothing else to fingerprint-cache — this is the whole site) so every deploy is visible on the next normal reload, not hidden behind a stale browser cache for up to an hour.
+The `headers` block overrides Firebase Hosting's default hour-long cache (there's nothing to fingerprint-cache — this is the whole site, one HTML file) so every deploy is visible on the next normal reload, not hidden behind a stale browser cache for up to an hour. Source has to be the broad `**` glob, not `/index.html` specifically — Firebase Hosting's CDN caches the clean-URL root (`/`, what a browser actually requests when it navigates to the domain) as a separate entry from `/index.html`, so a rule scoped to just the filename leaves the root path still caching for an hour.
 
 ## 9. Point the frontend at the backend
 
