@@ -447,7 +447,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v18.5';
+const BUILD_VERSION = 'v18.6';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -2196,15 +2196,27 @@ async function loadDashboard() {
 loadDashboard();
 
 // Then re-sync every 5 minutes, aligned to the clock (:00, :05, :10, ...)
-// so the frontend refresh lines up with the backend's own 5-min cache cycle.
+// so the frontend refresh lines up with the backend's own 5-min cache
+// cycle -- but offset PAST each mark by REFRESH_ALIGN_OFFSET_MS, not
+// polling exactly on it. refreshLeagues (the backend's own 5-min cron)
+// doesn't start atomically at the mark either: Cloud Scheduler dispatch,
+// cold starts, and queueing routinely push its actual start anywhere
+// from 3 to 55 seconds past the mark (measured from refreshLeagues'
+// own invocation logs), and its ESPN-fetch-plus-Firestore-write
+// execution then takes ~7-8s more on top of that. Polling right at :00
+// instead of after that window reliably raced ahead of the backend's
+// write and read the PREVIOUS cycle's still-cached data -- the fetch
+// itself succeeds, so nothing looks "broken" client-side, but the
+// content stays a full cycle stale until the next poll catches up.
+const REFRESH_ALIGN_OFFSET_MS = 45 * 1000;
 function scheduleAlignedRefresh() {
   const now = new Date();
   const msPastFive = ((now.getMinutes() % 5) * 60 + now.getSeconds()) * 1000 + now.getMilliseconds();
-  const msToNextMark = (5 * 60 * 1000) - msPastFive;
+  const msToNextAlignedFetch = (5 * 60 * 1000) - msPastFive + REFRESH_ALIGN_OFFSET_MS;
   setTimeout(() => {
     loadDashboard();
     setInterval(loadDashboard, 5 * 60 * 1000);
-  }, msToNextMark);
+  }, msToNextAlignedFetch);
 }
 scheduleAlignedRefresh();
 
