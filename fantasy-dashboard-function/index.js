@@ -316,6 +316,7 @@ async function buildLiveScoringBoard(results, gameStatus) {
             playerId: player.id,
             playerName: player.fullName || 'Unknown',
             position: POSITION_NAMES[player.defaultPositionId] || SLOT_NAMES[entry.lineupSlotId] || null,
+            nflTeam,
             teamId: sideData.teamId,
             teamName: team ? team.name : 'TBD',
             leagueColor: color,
@@ -328,11 +329,15 @@ async function buildLiveScoringBoard(results, gameStatus) {
 
   entries.sort((a, b) => b.points - a.points);
 
-  // "Just scored" -- compare each player's points to the *previous*
-  // refresh's snapshot, stored in Firestore since a Cloud Function
-  // doesn't retain memory between invocations. Tied to the backend's own
-  // 5-min cadence, not "since this browser tab last polled", so the flag
-  // is correct no matter when a viewer's page happens to load.
+  // "Trend" -- compare each player's points to the *previous* refresh's
+  // snapshot, stored in Firestore since a Cloud Function doesn't retain
+  // memory between invocations. Tied to the backend's own 5-min cadence,
+  // not "since this browser tab last polled", so the flag is correct no
+  // matter when a viewer's page happens to load. 'up' covers the normal
+  // case (scored more); 'down' is rare but real -- ESPN does occasionally
+  // revise appliedTotal downward on a stat correction/recategorization
+  // within the same live window, and that's worth surfacing distinctly
+  // rather than silently, same as an increase is.
   const prevRef = firestore.collection('fantasy-dashboard').doc('live-scoring-prev');
   let previousPoints = {};
   try {
@@ -344,7 +349,8 @@ async function buildLiveScoringBoard(results, gameStatus) {
 
   const nextPoints = {};
   entries.forEach(e => {
-    e.justScored = e.points > (previousPoints[e.playerId] ?? 0);
+    const prevValue = previousPoints[e.playerId] ?? 0;
+    e.trend = e.points > prevValue ? 'up' : e.points < prevValue ? 'down' : null;
     nextPoints[e.playerId] = e.points;
   });
 
