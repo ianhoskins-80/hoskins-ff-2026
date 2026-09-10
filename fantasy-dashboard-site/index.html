@@ -165,10 +165,6 @@
   .filter-pill.pill-blue { border-color: var(--blue); color: var(--blue); }
   .filter-pill.pill-blue:hover { background: var(--blue-tint); }
   .filter-pill.pill-blue.selected { background: var(--blue-tint-strong); border-color: var(--blue); color: var(--blue); }
-  /* Compact size for team-level (as opposed to league-level) pills --
-     matches .chart-legend-chip's smaller footprint on the standings
-     chart, since a team row can have many more chips than a league row. */
-  .filter-pill.compact { padding: 3px 9px; font-size: 11px; }
   .matrix-scroll { overflow-x: auto; }
   .matrix-scroll table { min-width: 560px; }
   td.matrix-cell { cursor: pointer; }
@@ -406,7 +402,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v17.6';
+const BUILD_VERSION = 'v17.7';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -795,10 +791,12 @@ function renderLiveScoringBoard() {
   // Team multi-select -- same idea as the standings chart: with 1+ teams
   // selected, every other team's players are fully hidden (not shown at
   // all), not just dimmed, so isolating a couple of teams out of many
-  // stays legible. Reuses the existing filter-pill/pill-red/pill-blue
-  // classes so team chips get the same red/blue treatment for free.
+  // stays legible. Reuses the standings chart's own chart-legend-chip
+  // markup and teamLineColorForTeam() shading (not the league-filter
+  // pills' red/blue-border style) so a team's chip looks and colors
+  // identically here and on the chart, not just similarly.
   const teamsPresent = [...new Map(
-    leagueFilteredPlayers.map(p => [`${p.leagueColor}:${p.teamId}`, { key: `${p.leagueColor}:${p.teamId}`, teamName: p.teamName, leagueColor: p.leagueColor }])
+    leagueFilteredPlayers.map(p => [`${p.leagueColor}:${p.teamId}`, { key: `${p.leagueColor}:${p.teamId}`, teamId: p.teamId, teamName: p.teamName, leagueColor: p.leagueColor }])
   ).values()].sort((a, b) => a.teamName.localeCompare(b.teamName));
   const teamFilterActive = selectedLiveScoringTeamKeys.size > 0;
 
@@ -817,7 +815,7 @@ function renderLiveScoringBoard() {
 
   const teamChipsHtml = teamsPresent.length > 1 ? `
     <div class="filter-pills">
-      ${teamsPresent.map(t => `<button type="button" class="filter-pill compact pill-${t.leagueColor} ${selectedLiveScoringTeamKeys.has(t.key) ? 'selected' : ''}" data-live-scoring-team="${t.key}" title="Filter to ${escapeHtml(t.teamName)} only">${escapeHtml(t.teamName)}</button>`).join('')}
+      ${teamsPresent.map(t => `<button type="button" class="chart-legend-chip ${selectedLiveScoringTeamKeys.has(t.key) ? 'selected' : ''}" data-live-scoring-team="${t.key}" title="Filter to ${escapeHtml(t.teamName)} only"><span class="chart-legend-swatch" style="background:${teamLineColorForTeam(t.leagueColor, t.teamId)}"></span>${escapeHtml(t.teamName)}</button>`).join('')}
       ${teamFilterActive ? '<button type="button" class="chart-reset" id="liveScoringTeamReset">Show all</button>' : ''}
     </div>` : '';
 
@@ -1262,6 +1260,18 @@ function teamLineColor(leagueColor, indexInLeague, totalInLeague) {
   const t = totalInLeague > 1 ? indexInLeague / (totalInLeague - 1) : 0;
   const lightness = 42 + t * 36; // spread dark -> light across teams in the league
   return `hsl(${hue}, 72%, ${lightness}%)`;
+}
+
+// Same per-team color-shade as teamLineColor above, but keyed off the
+// live team roster (leagues) rather than a standingsHistory snapshot --
+// lets a section render this before Standings Trend has (or without
+// depending on it at all), while still landing on the identical shade
+// for a given team, so Live Scoring's team chips read as the same
+// color-coding system as the chart's legend, not just a similar one.
+function teamLineColorForTeam(leagueColor, teamId) {
+  const league = leagues.find(l => l.color === leagueColor);
+  const ids = (league?.data.teams || []).map(t => t.id).sort((a, b) => a - b);
+  return teamLineColor(leagueColor, ids.indexOf(teamId), ids.length);
 }
 
 function renderStandingsChart() {
