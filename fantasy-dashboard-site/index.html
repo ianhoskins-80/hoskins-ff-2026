@@ -402,7 +402,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v17.4';
+const BUILD_VERSION = 'v17.5';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -682,7 +682,13 @@ function renderMatchupsBlock(league, leagueIdx) {
     acc.accumulated += (g.home?.totalPoints ?? 0) + (g.away?.totalPoints ?? 0);
     return acc;
   }, { projected: 0, accumulated: 0 });
-  const seasonTotal = teams.reduce((sum, t) => sum + (t.record?.overall?.pointsFor ?? 0), 0);
+  // t.record.overall.pointsFor only counts weeks ESPN has already
+  // finalized -- it doesn't include the current, still-in-progress week
+  // at all, so a plain sum of it stays frozen all week even as real
+  // points are being scored. leagueTotals.accumulated (above) is that
+  // missing piece: the live current-week total, from the same
+  // backend-patched totalPoints field the matchup cards read.
+  const seasonTotal = teams.reduce((sum, t) => sum + (t.record?.overall?.pointsFor ?? 0), 0) + leagueTotals.accumulated;
   const totalsLine = `Week Projected ${leagueTotals.projected.toFixed(1)}`
     + (anyScores ? ` · Week Total ${leagueTotals.accumulated.toFixed(1)}` : '')
     + ` · Season Total ${seasonTotal.toFixed(1)}`;

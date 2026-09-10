@@ -357,11 +357,36 @@ async function buildLiveScoringBoard(results, gameStatus) {
   return entries;
 }
 
+// ESPN's own `totalPoints` on a schedule matchup side stays frozen at 0
+// for the CURRENT week until that week is officially finalized (stat
+// corrections locked, usually the following Tuesday) -- it is NOT a live
+// running score, even though `mMatchupScore` is in ESPN_VIEWS. The real
+// live number is sitting right next to it though: `pointsByScoringPeriod`
+// is keyed by week and DOES update live (confirmed against the roster's
+// own actual stats, which match it exactly). Patches `totalPoints` for
+// this week's (and only this week's) schedule matchups with that value --
+// every consumer of schedule[].home/away.totalPoints (matchup cards, the
+// Week Total line, the score-history chart, the roster-comparison modal)
+// reads this same field, so fixing it here fixes all of them at once.
+// Past weeks are left alone: ESPN's own post-finalization totalPoints for
+// a completed week is authoritative, so only the still-in-progress
+// current week is touched.
+function patchLiveMatchupTotals(data) {
+  const currentWeek = data.status?.currentMatchupPeriod ?? 1;
+  const liveTotal = sideData => sideData?.pointsByScoringPeriod?.[currentWeek] ?? 0;
+  (data.schedule || []).forEach(g => {
+    if (g.matchupPeriodId !== currentWeek) return;
+    if (g.home) g.home.totalPoints = liveTotal(g.home);
+    if (g.away) g.away.totalPoints = liveTotal(g.away);
+  });
+}
+
 async function refreshAllLeagues() {
   const results = [];
   for (const league of LEAGUES) {
     try {
       const data = await fetchLeague(league.id);
+      patchLiveMatchupTotals(data);
       results.push({ color: league.color, data });
     } catch (err) {
       console.error(`Failed to fetch league ${league.id}:`, err.message);
