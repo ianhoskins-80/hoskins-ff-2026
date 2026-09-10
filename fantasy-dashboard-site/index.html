@@ -400,7 +400,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v17.8';
+const BUILD_VERSION = 'v17.9';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -1085,19 +1085,39 @@ function filterMatrixRowsByLeague(rows, leagueColorsPresent) {
 // Sums one position's column across every given row, and flattens every
 // contributing team's players into one list (each tagged with which team
 // it came from) for the "all teams" breakdown modal.
+//
+// Applies the SAME actual-only-once-anyone's-played rule as a single
+// team's own cell (finalizePositionBuckets, above) -- but across every
+// player at this position league-wide, not by summing each team's
+// already-finalized per-team total. Summing per-team totals blended real
+// numbers from teams whose player at this position had played with still-
+// projected numbers from teams whose hadn't, the same "solid-looking but
+// mostly a guess" bug the per-cell fix addressed, just one level up: e.g.
+// a real total of 23.0 (one team's WR has actually scored, every other
+// team's hasn't) rendered as a blended, inflated 586.4. Once anyone
+// league-wide has real points, every not-yet-played player contributes 0
+// (not their projection) -- projections are used only while literally
+// nobody at this position has played yet.
 function computePositionTotals(rows, position) {
-  let total = 0;
-  let allActual = true;
+  let actualSum = 0;
+  let projectedSum = 0;
   let hasActual = false;
+  let allActual = true;
   const players = [];
   rows.forEach(row => {
     const bucket = row.positions[position];
     if (!bucket || !bucket.players.length) return;
-    total += bucket.total;
     if (!bucket.allActual) allActual = false;
-    if (bucket.hasActual) hasActual = true;
-    bucket.players.forEach(p => players.push({ ...p, teamName: row.teamName, leagueColor: row.leagueColor }));
+    bucket.players.forEach(p => {
+      if (p.actual != null) {
+        actualSum += p.actual;
+        hasActual = true;
+      }
+      projectedSum += p.actual != null ? p.actual : (p.projected != null ? p.projected : 0);
+      players.push({ ...p, teamName: row.teamName, leagueColor: row.leagueColor });
+    });
   });
+  const total = hasActual ? actualSum : projectedSum;
   return { total, allActual, hasActual, players };
 }
 
