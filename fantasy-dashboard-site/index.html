@@ -283,8 +283,6 @@
   .live-scoring-more button { font-size: 12px; background: var(--line); color: var(--text); border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; }
   .live-scoring-more button:hover { background: var(--text-dim); color: var(--bg); }
   .live-scoring-count { font-size: 11px; color: var(--text-dim); }
-  .live-scoring-team-name.pill-red { color: var(--red); }
-  .live-scoring-team-name.pill-blue { color: var(--blue); }
   .modal-group-row td {
     padding: 10px 12px 4px; font-size: 10px; text-transform: uppercase;
     letter-spacing: 0.6px; color: var(--text-dim); border-bottom: none;
@@ -402,7 +400,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v17.7';
+const BUILD_VERSION = 'v17.8';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -831,13 +829,14 @@ function renderLiveScoringBoard() {
   const rowsHtml = visiblePlayers.map(p => {
     const positionLabel = p.position ? escapeHtml(p.position) + ' ' : '';
     const dot = p.justScored ? '<span class="just-scored-dot" title="Scored in the last update"></span>' : '';
-    // A player on just one team keeps the same red/blue row tint as
-    // before; a shared player's row stays neutral (can't tint for two
-    // leagues at once) and instead color-codes each team name inline.
-    const rowClass = p.teams.length === 1 ? `row-${p.teams[0].leagueColor}` : '';
-    const teamsHtml = p.teams.map(t => `<span class="live-scoring-team-name pill-${t.leagueColor}">${escapeHtml(t.teamName)}</span>`).join(', ');
+    // Rows themselves stay plain (no red/blue background tint) -- only
+    // the team name text is color-coded, using the exact same per-team
+    // shade as the team-filter chips/chart legend (teamLineColorForTeam),
+    // not just a flat league red/blue, so a team reads as the same color
+    // everywhere it appears on the page.
+    const teamsHtml = p.teams.map(t => `<span class="live-scoring-team-name" style="color:${teamLineColorForTeam(t.leagueColor, t.teamId)}">${escapeHtml(t.teamName)}</span>`).join(', ');
     return `
-      <tr class="${rowClass}">
+      <tr>
         <td>${teamsHtml}</td>
         <td>${positionLabel}${escapeHtml(p.playerName)}${dot}</td>
         <td class="num">${p.points.toFixed(1)}</td>
