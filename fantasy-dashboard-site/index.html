@@ -447,7 +447,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v18.4';
+const BUILD_VERSION = 'v18.5';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -2160,6 +2160,14 @@ document.addEventListener('change', (e) => {
   }
 });
 
+// Wall-clock timestamp of the last successful load -- NOT trusted-timer
+// bookkeeping, just Date.now() at the moment data actually arrived. The
+// staleness watchdog below compares real elapsed time against this,
+// rather than assuming scheduleAlignedRefresh's setInterval fired the
+// right number of times, since that assumption doesn't hold across a
+// system sleep (see the watchdog's own comment for why).
+let lastDashboardLoadAt = 0;
+
 async function loadDashboard() {
   try {
     const res = await fetch(DASHBOARD_API_URL, { cache: 'no-store' });
@@ -2177,6 +2185,7 @@ async function loadDashboard() {
     el.textContent = payload.updatedAt
       ? 'Last updated ' + new Date(payload.updatedAt).toLocaleTimeString()
       : '';
+    lastDashboardLoadAt = Date.now();
   } catch (err) {
     console.error('Failed to load dashboard data:', err);
     document.getElementById('lastUpdated').textContent = 'Could not load data — check back shortly.';
@@ -2236,10 +2245,38 @@ async function sendHeartbeat() {
   }
 }
 
+// A bit more than the 5-min refresh cadence, so a fetch that's merely
+// running slightly behind schedule doesn't trigger a redundant extra one.
+const STALE_REFRESH_THRESHOLD_MS = 5.5 * 60 * 1000;
+
+// scheduleAlignedRefresh's setInterval assumes it fires on schedule --
+// an assumption that breaks across a system sleep (lid closed, display
+// suspended): the OS can freeze JS timers for the sleep's whole
+// duration, and unlike a plain tab switch, that doesn't reliably fire
+// visibilitychange on wake either, so the visibilitychange-triggered
+// refresh below can't be counted on to catch it. Reported live:
+// data stayed 6 minutes stale on a tab that (as far as the DOM ever
+// reported) never left 'visible'. Rather than trying to make the
+// interval itself sleep-proof, this just asks "is the data actually
+// current?" using real elapsed wall-clock time, piggybacked on the
+// heartbeat's own tick -- already the most reliable recurring signal in
+// the app, since it only runs while genuinely visible and both pauses
+// on hidden and fires immediately on becoming visible again.
+function checkDashboardStaleness() {
+  if (lastDashboardLoadAt && Date.now() - lastDashboardLoadAt > STALE_REFRESH_THRESHOLD_MS) {
+    loadDashboard();
+  }
+}
+
+function heartbeatTick() {
+  sendHeartbeat();
+  checkDashboardStaleness();
+}
+
 function startHeartbeat() {
   if (heartbeatIntervalId) return;
-  sendHeartbeat();
-  heartbeatIntervalId = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+  heartbeatTick();
+  heartbeatIntervalId = setInterval(heartbeatTick, HEARTBEAT_INTERVAL_MS);
 }
 
 function stopHeartbeat() {
@@ -2252,17 +2289,14 @@ function stopHeartbeat() {
 if (document.visibilityState === 'visible') startHeartbeat();
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
+    // startHeartbeat() runs an immediate heartbeatTick() synchronously
+    // (see above), which includes checkDashboardStaleness() -- so
+    // reopening/refocusing a backgrounded tab already re-checks (and, if
+    // actually stale, refreshes) the dashboard, without needing a
+    // separate unconditional loadDashboard() call here. No need to
+    // refetch data that's still within its valid window just because the
+    // tab happened to blur and refocus.
     startHeartbeat();
-    // The dashboard's own 5-min refresh (scheduleAlignedRefresh, above)
-    // is a bare setInterval, which browsers throttle or fully suspend in
-    // a backgrounded tab -- unlike the heartbeat, it has no built-in way
-    // to catch up once that happens, so a tab left in the background
-    // across a 5-min mark can sit on stale data well past when it
-    // should've refreshed, not just briefly. Firing an immediate
-    // loadDashboard() here means the moment a viewer actually looks at
-    // the tab again, it's current -- rather than waiting for whatever's
-    // left of the throttled interval's next (possibly very delayed) tick.
-    loadDashboard();
   } else {
     stopHeartbeat();
   }
