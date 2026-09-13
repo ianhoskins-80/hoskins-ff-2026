@@ -213,6 +213,9 @@
      neither has one position or one team to hand the click-to-modal
      handlers, so no cursor/hover affordance either. */
   td.matrix-row-total-cell { font-weight: 700; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--text); }
+  th.sortable.sorted { color: var(--text); }
 
   /* ---- standings trend chart ---- */
   .chart-wrap { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
@@ -452,7 +455,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v19.2';
+const BUILD_VERSION = 'v19.3';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -486,6 +489,8 @@ let liveScoring = []; // populated from the API: [{ playerId, playerName, positi
 let gameStatus = {}; // populated from the API: { [nflTeamAbbr]: { state: 'pre'|'in'|'post', secondsRemaining } }
 let selectedChartTeamIds = new Set(); // multi-select filter state for the standings chart
 let matrixLeagueFilter = 'all'; // 'all' or a league color -- row filter for the points-by-position matrix
+let matrixSortColumn = 'team'; // 'team' | one of POSITION_COLUMNS | 'Total' -- which column the position matrix is sorted by
+let matrixSortDirection = 'asc'; // 'asc' | 'desc' -- direction for matrixSortColumn
 let standingsLeagueFilter = 'all'; // 'all' or a league color -- row filter for Combined Standings
 let matchupsLeagueFilter = 'all'; // 'all' or a league color -- which league blocks show in This Week's Matchups
 let chartLeagueFilter = 'all'; // 'all' or a league color -- which teams' lines show in the standings chart
@@ -1260,6 +1265,62 @@ function computeGrandTotal(rows) {
   return { total: hasActual ? actualSum : projectedSum, hasActual };
 }
 
+// One <th> for the position matrix -- clickable, showing a ▲/▼ when
+// it's the currently active sort column. `column` is 'team', a
+// POSITION_COLUMNS entry, or 'Total'; matched directly against
+// matrixSortColumn to decide the indicator (see toggleMatrixSort()).
+function renderMatrixHeaderCell(label, column, isNumeric) {
+  const isActive = matrixSortColumn === column;
+  const arrow = isActive ? (matrixSortDirection === 'asc' ? ' ▲' : ' ▼') : '';
+  const cls = ['sortable', isNumeric ? 'num' : '', isActive ? 'sorted' : ''].filter(Boolean).join(' ');
+  return `<th class="${cls}" data-sort-column="${column}" title="Click to sort">${label}${arrow}</th>`;
+}
+
+// Three-click cycle per the requested spec: click a column -> ascending;
+// click the SAME column again -> descending; click it a third time ->
+// back to the default (Team, ascending) rather than some fourth
+// unsorted state. Clicking a *different* column always starts that
+// column fresh at ascending, discarding whatever the previous column's
+// direction was -- single-column sort, like any standard sortable table.
+function toggleMatrixSort(column) {
+  if (matrixSortColumn === column) {
+    if (matrixSortDirection === 'asc') {
+      matrixSortDirection = 'desc';
+    } else {
+      matrixSortColumn = 'team';
+      matrixSortDirection = 'asc';
+    }
+  } else {
+    matrixSortColumn = column;
+    matrixSortDirection = 'asc';
+  }
+  renderPositionMatrix();
+}
+
+// Sorts a copy of `rows` by matrixSortColumn/matrixSortDirection --
+// 'team' compares team name (falling back to teamName's own natural
+// order is the table's original, pre-sort-feature default); a position
+// column compares that position's bucket total; 'Total' compares each
+// team's own rowTotal. Never mutates the input array, since callers
+// (renderPositionMatrix) still need the league-filtered-but-unsorted
+// list for other purposes (leagueColorsPresent, etc.) built beforehand.
+function sortMatrixRows(rows, column, direction) {
+  const dir = direction === 'desc' ? -1 : 1;
+  const sorted = [...rows];
+  sorted.sort((a, b) => {
+    let result;
+    if (column === 'team') {
+      result = a.teamName.localeCompare(b.teamName);
+    } else if (column === 'Total') {
+      result = (a.rowTotal?.total ?? 0) - (b.rowTotal?.total ?? 0);
+    } else {
+      result = (a.positions[column]?.total ?? 0) - (b.positions[column]?.total ?? 0);
+    }
+    return result * dir;
+  });
+  return sorted;
+}
+
 function renderPositionMatrix() {
   const container = document.getElementById('matrixContainer');
 
@@ -1290,13 +1351,14 @@ function renderPositionMatrix() {
   const leagueColorsPresent = sortedLeagueColors([...new Set(rows.map(r => r.leagueColor))]);
   const pillsHtml = renderLeagueFilterPills(leagueColorsPresent, matrixLeagueFilter, 'matrix-filter');
 
-  const filteredRows = filterMatrixRowsByLeague(rows, leagueColorsPresent);
+  const filteredRows = sortMatrixRows(filterMatrixRowsByLeague(rows, leagueColorsPresent), matrixSortColumn, matrixSortDirection);
 
   const caveatHtml = effectiveWeek < currentWeek
     ? `<div class="matchup-caveat">From the Week ${effectiveWeek} roster snapshot, captured that week.</div>`
     : '';
 
-  const headerCells = POSITION_COLUMNS.map(p => `<th class="num">${p}</th>`).join('') + '<th class="num">Total</th>';
+  const teamHeaderCell = renderMatrixHeaderCell('Team', 'team', false);
+  const headerCells = POSITION_COLUMNS.map(p => renderMatrixHeaderCell(p, p, true)).join('') + renderMatrixHeaderCell('Total', 'Total', true);
   const bodyRows = filteredRows.map(row => {
     // Real (non-projected) numbers are colored in this team's own shade --
     // the same teamLineColorForTeam() used for its team-filter chip and
@@ -1360,7 +1422,7 @@ function renderPositionMatrix() {
     ${caveatHtml}
     <div class="matrix-scroll">
       <table>
-        <thead><tr><th>Team</th>${headerCells}</tr></thead>
+        <thead><tr>${teamHeaderCell}${headerCells}</tr></thead>
         <tbody>${bodyRows}${totalRowHtml}</tbody>
       </table>
     </div>`;
@@ -2154,6 +2216,11 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'liveScoringLoadMore') {
     liveScoringVisibleCount += 25;
     renderLiveScoringBoard();
+    return;
+  }
+  const matrixSortHeader = e.target.closest('[data-sort-column]');
+  if (matrixSortHeader) {
+    toggleMatrixSort(matrixSortHeader.dataset.sortColumn);
     return;
   }
   const matrixTotalCell = e.target.closest('.matrix-total-cell');
