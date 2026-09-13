@@ -387,6 +387,58 @@ function patchLiveMatchupTotals(data) {
   });
 }
 
+// Same 'up'/'down'/null trend concept as Live Scoring's per-player
+// points (buildLiveScoringBoard), applied to each team's own
+// totalProjectedPoints instead -- ESPN's projection can move for
+// reasons that have nothing to do with the game clock (a
+// questionable/inactive tag resolving, a stat-model update), so it's
+// worth surfacing the same way a real score change is. Runs once
+// across every league's current-week matchups (teams are keyed
+// `${leagueColor}:${teamId}`, same convention as everywhere else),
+// comparing against a Firestore snapshot from the previous refresh
+// since a Cloud Function doesn't retain memory between invocations.
+//
+// Unlike Live Scoring (which defaults a never-before-seen player's
+// "previous" points to 0, so their first stat correctly shows as an
+// increase), a team with no snapshot yet gets trend: null, not 'up' --
+// every team already has a non-zero projection before a single stat is
+// posted, so treating "no snapshot" as "was 0" would flash a false "up"
+// arrow on every team on the very first refresh after this shipped,
+// rather than meaning anything.
+async function patchProjectedTrends(results) {
+  const prevRef = firestore.collection('fantasy-dashboard').doc('team-projected-prev');
+  let previousProjected = {};
+  try {
+    const prevDoc = await prevRef.get();
+    previousProjected = prevDoc.exists ? (prevDoc.data().projected || {}) : {};
+  } catch (err) {
+    console.error('Failed to read previous team-projected snapshot:', err.message);
+  }
+
+  const nextProjected = {};
+  results.forEach(({ color, data }) => {
+    const currentWeek = data.status?.currentMatchupPeriod ?? 1;
+    (data.schedule || []).forEach(g => {
+      if (g.matchupPeriodId !== currentWeek) return;
+      ['home', 'away'].forEach(side => {
+        const sideData = g[side];
+        if (!sideData) return;
+        const key = `${color}:${sideData.teamId}`;
+        const current = sideData.totalProjectedPoints ?? 0;
+        const prev = previousProjected[key];
+        sideData.projectedTrend = prev == null ? null : current > prev ? 'up' : current < prev ? 'down' : null;
+        nextProjected[key] = current;
+      });
+    });
+  });
+
+  try {
+    await prevRef.set({ projected: nextProjected, updatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error('Failed to write team-projected snapshot:', err.message);
+  }
+}
+
 async function refreshAllLeagues() {
   const results = [];
   for (const league of LEAGUES) {
@@ -400,6 +452,8 @@ async function refreshAllLeagues() {
       // so the dashboard doesn't go fully blank.
     }
   }
+
+  await patchProjectedTrends(results);
 
   const currentWeek = results[0]?.data?.status?.currentMatchupPeriod ?? 1;
   const gameStatus = await fetchNflGameStatus(currentWeek);
