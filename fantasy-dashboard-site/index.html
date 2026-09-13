@@ -455,7 +455,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v19.3';
+const BUILD_VERSION = 'v19.4';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -643,6 +643,22 @@ function memberName(data, ownerId) {
 // wrongly counted a bye-week player as "yet to play" instead of neither).
 // A starter whose NFL team isn't in `gameStatus` at all (bye week, or the
 // scoreboard fetch failed this cycle) counts toward neither bucket.
+// Mins Left is a SUM across every not-yet-finished starter, not a max
+// over only the currently-playing ones -- reverse-engineered against
+// ESPN's own live scoreboard (fantasy.espn.com/football/league/scoreboard)
+// after a reported mismatch: our old max-of-currently-playing number was
+// off by 10x-40x whenever a team had any "yet to play" starter, since it
+// ignored them entirely. A currently-playing starter contributes their
+// real secondsRemainingInGame; a yet-to-play starter contributes a flat
+// 3600 seconds (60 minutes) regardless of how far off their kickoff
+// actually is -- confirmed against several real teams simultaneously
+// (e.g. a team with 4 yet-to-play starters and ~4 min of currently-
+// playing-game clock landed on ESPN's displayed 244 almost exactly:
+// 4 * 60 + ~4 ≈ 244). Not our own estimate of "how much game is really
+// left" -- just matching ESPN's own (much simpler, flat-placeholder)
+// formula so this number agrees with what the league sees on ESPN.
+const YET_TO_PLAY_MINS_PLACEHOLDER_SEC = 60 * 60;
+
 function computePlayCounts(sideData) {
   const entries = sideData?.rosterForCurrentScoringPeriod?.entries || [];
   // lineupSlotId 20 = bench, 21 = IR -- exclude those, only count starters.
@@ -651,7 +667,8 @@ function computePlayCounts(sideData) {
 
   let playing = 0;
   let yetToPlay = 0;
-  let minsLeft = null; // time left until this team's LAST currently-playing starter's game ends
+  let minsLeftSeconds = 0;
+  let hasAnyRemaining = false; // false once every starter is done (or unresolvable) -- renders '—'
   starters.forEach(entry => {
     const player = entry.playerPoolEntry?.player;
     const nflTeam = PRO_TEAM_ABBR[player?.proTeamId];
@@ -659,15 +676,16 @@ function computePlayCounts(sideData) {
     if (!status) return;
     if (status.state === 'in') {
       playing++;
-      if (status.secondsRemaining != null) {
-        minsLeft = minsLeft == null ? status.secondsRemaining : Math.max(minsLeft, status.secondsRemaining);
-      }
+      hasAnyRemaining = true;
+      minsLeftSeconds += status.secondsRemaining ?? 0;
     } else if (status.state === 'pre') {
       yetToPlay++;
+      hasAnyRemaining = true;
+      minsLeftSeconds += YET_TO_PLAY_MINS_PLACEHOLDER_SEC;
     }
   });
 
-  return { playing, yetToPlay, minsLeft: minsLeft != null ? Math.ceil(minsLeft / 60) : null };
+  return { playing, yetToPlay, minsLeft: hasAnyRemaining ? Math.ceil(minsLeftSeconds / 60) : null };
 }
 
 function renderMatchupsBlock(league, leagueIdx) {
