@@ -452,7 +452,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v19.0';
+const BUILD_VERSION = 'v19.1';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -692,6 +692,14 @@ function renderMatchupsBlock(league, leagueIdx) {
     const team = teamById(teamId);
     const counts = computePlayCounts(side);
     const name = escapeHtml(team ? team.name : 'TBD');
+    // Same up/down trend arrow as Live Scoring (patchProjectedTrends in
+    // the backend, comparing this refresh's totalProjectedPoints to the
+    // previous one) -- a team's projection can move for reasons that
+    // have nothing to do with the scoreboard (a questionable tag
+    // resolving, a stat-model update), worth surfacing the same way.
+    const trendArrow = side?.projectedTrend === 'up' ? '<span class="trend-arrow up" title="Projected score increased since the last update"></span>'
+      : side?.projectedTrend === 'down' ? '<span class="trend-arrow down" title="Projected score decreased since the last update"></span>'
+      : '';
     return `
       <div class="team-block ${isWinning ? 'winning' : ''}">
         <div class="team-top">
@@ -705,7 +713,7 @@ function renderMatchupsBlock(league, leagueIdx) {
           <div class="metric"><span class="metric-label">Currently Playing</span><span class="metric-value">${counts.playing}</span></div>
           <div class="metric"><span class="metric-label">Yet to Play</span><span class="metric-value">${counts.yetToPlay}</span></div>
           <div class="metric"><span class="metric-label">Mins Left</span><span class="metric-value">${counts.minsLeft != null ? counts.minsLeft : '—'}</span></div>
-          <div class="metric"><span class="metric-label">Projected</span><span class="metric-value">${proj.toFixed(1)}</span></div>
+          <div class="metric"><span class="metric-label">Projected</span><span class="metric-value">${proj.toFixed(1)}${trendArrow}</span></div>
         </div>
       </div>`;
   };
