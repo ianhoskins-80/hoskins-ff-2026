@@ -389,39 +389,30 @@ function patchLiveMatchupTotals(data) {
 
 // ESPN's own `totalProjectedPoints` on a schedule matchup side is a
 // static, pre-game sum -- it does NOT recompute as the game progresses,
-// unlike what ESPN's own app displays as "Projected." Confirmed live:
-// a real team's raw field stayed frozen at its pre-game value (138.74)
-// for the whole game, while summing each of its starters' own actual
-// score (once they'd played) with their pre-game projection (for
-// anyone who hadn't) gave 143.64 -- an exact match for what ESPN's app
-// showed at that moment. A "projected final" is inherently a blend of
-// what's already real and what's still an estimate; unlike Points by
-// Position's per-position cell (which deliberately goes real-only once
-// *anyone* has played, since that field means "points actually scored
-// so far," not a forecast), a forward-looking final-score projection is
-// supposed to fold in the actual as it lands. Patches
-// totalProjectedPoints for the current week only (past weeks' own
-// projections are moot; future weeks haven't started) with that live
-// blend, computed straight from each starter's own stats -- same
-// per-player actual/projected values already used by Points by
-// Position and the roster lightbox.
+// unlike what ESPN's own app displays as "Projected." An earlier version
+// of this function approximated the live number ourselves (summing each
+// starter's actual-or-projected stat) -- that got within ~1-2% but never
+// matched exactly, since ESPN's own live model isn't just that simple
+// sum. `totalProjectedPointsLive` turned out to be a real field ESPN
+// was returning all along under our existing ESPN_VIEWS -- we just never
+// read it, computing our own approximation instead. Found by inspecting
+// the network calls ESPN's own FantasyCast page makes (same public
+// endpoint, and confirmed the field is present without needing whatever
+// extra views that page happens to also request). Matches FantasyCast's
+// displayed "Proj Total" exactly, so there's no need to approximate
+// anymore -- just use ESPN's own number. Patches totalProjectedPoints
+// for the current week only (past weeks' own projections are moot;
+// future weeks haven't started).
 function patchLiveProjectedTotals(data) {
   const currentWeek = data.status?.currentMatchupPeriod ?? 1;
-  const liveProjectedTotal = sideData => {
-    const entries = (sideData?.rosterForCurrentScoringPeriod?.entries || []).filter(Boolean);
-    return entries.reduce((sum, entry) => {
-      if (entry.lineupSlotId === 20 || entry.lineupSlotId === 21) return sum; // bench / IR
-      const stats = entry.playerPoolEntry?.player?.stats || [];
-      const actualStat = stats.find(s => s.scoringPeriodId === currentWeek && s.statSourceId === 0);
-      const projStat = stats.find(s => s.scoringPeriodId === currentWeek && s.statSourceId === 1);
-      const value = actualStat ? actualStat.appliedTotal : (projStat ? projStat.appliedTotal : 0);
-      return sum + value;
-    }, 0);
-  };
   (data.schedule || []).forEach(g => {
     if (g.matchupPeriodId !== currentWeek) return;
-    if (g.home) g.home.totalProjectedPoints = liveProjectedTotal(g.home);
-    if (g.away) g.away.totalProjectedPoints = liveProjectedTotal(g.away);
+    ['home', 'away'].forEach(side => {
+      const sideData = g[side];
+      if (sideData?.totalProjectedPointsLive != null) {
+        sideData.totalProjectedPoints = sideData.totalProjectedPointsLive;
+      }
+    });
   });
 }
 
