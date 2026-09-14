@@ -144,6 +144,10 @@
   .metric { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); }
   .metric[hidden] { display: none; }
   .metric .metric-value { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+  .win-prob-row { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 10px; color: var(--text-dim); }
+  .win-prob-pct { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; flex-shrink: 0; width: 30px; }
+  .win-prob-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .win-prob-bar-fill { height: 100%; background: var(--live); border-radius: 3px; }
   .vs-divider { text-align: center; padding: 4px 0; }
   button.vs-divider.matchup-trigger {
     display: flex; align-items: center; justify-content: center; width: 100%;
@@ -455,7 +459,7 @@ const HEARTBEAT_URL = 'https://us-central1-fantasy2026.cloudfunctions.net/heartb
 // BUILD VERSION
 // Bump this on every deploy (see "Versioning" in README.md).
 // ---------------------------------------------------------------------
-const BUILD_VERSION = 'v19.4';
+const BUILD_VERSION = 'v20.0';
 document.getElementById('buildFooter').innerHTML =
   `Build ${BUILD_VERSION} <button type="button" class="tour-replay-link" id="tourReplayBtn">What's New</button>`;
 document.getElementById('tourReplayBtn').addEventListener('click', () => startTour());
@@ -723,6 +727,17 @@ function renderMatchupsBlock(league, leagueIdx) {
     const trendArrow = side?.projectedTrend === 'up' ? '<span class="trend-arrow up" title="Projected score increased since the last update"></span>'
       : side?.projectedTrend === 'down' ? '<span class="trend-arrow down" title="Projected score decreased since the last update"></span>'
       : '';
+    // ESPN's own per-team winProbability (0-1) for this week's matchup --
+    // a real field ESPN already returns under the backend's existing
+    // ESPN_VIEWS, not something we compute ourselves. null/missing (e.g.
+    // before ESPN's computed it yet) just omits the row rather than
+    // showing 0%.
+    const winProbPct = side?.winProbability != null ? Math.round(side.winProbability * 100) : null;
+    const winProbHtml = winProbPct != null ? `
+        <div class="win-prob-row" title="Chance to win this week's matchup">
+          <span class="win-prob-pct">${winProbPct}%</span>
+          <div class="win-prob-bar"><div class="win-prob-bar-fill" style="width:${winProbPct}%"></div></div>
+        </div>` : '';
     return `
       <div class="team-block ${isWinning ? 'winning' : ''}">
         <div class="team-top">
@@ -738,6 +753,7 @@ function renderMatchupsBlock(league, leagueIdx) {
           <div class="metric"><span class="metric-label">Mins Left</span><span class="metric-value">${counts.minsLeft != null ? counts.minsLeft : '—'}</span></div>
           <div class="metric"><span class="metric-label">Projected</span><span class="metric-value">${proj.toFixed(1)}${trendArrow}</span></div>
         </div>
+        ${winProbHtml}
       </div>`;
   };
 
