@@ -68,12 +68,14 @@ gcloud scheduler jobs run refresh-fantasy-leagues --location=us-central1 --proje
 ### Firestore
 
 **`fantasy-dashboard/latest`** — single document, overwritten every 5 minutes:
-- `leagues` — array of `{ color, data }`, where `data` is the **full, untrimmed** ESPN league response
+- `leagues` — array of `{ color, data }`, where `data` is the ESPN league response minus four fields nothing reads (`trimScheduleForStorage()` — see the size note below)
 - `liveScoring` — the Live Scoring board, see below
 - `gameStatus` — `{ [nflTeamAbbr]: { state: 'pre'|'in'|'post', secondsRemaining, date } }`, one entry per NFL team from the public scoreboard API (see Live Scoring, below) — also drives the matchup-card Currently Playing / Yet to Play / Mins Left metrics and the roster modal's per-player game time
 - `updatedAt` — ISO timestamp
 
-The full ESPN response is stored (not a trimmed subset) because the frontend's "Currently Playing" / "Yet to Play" metrics depend on per-player roster data only present there. Don't trim this payload without checking whether the frontend still needs those fields.
+Almost the full ESPN response is stored (not a trimmed subset) because the frontend's "Currently Playing" / "Yet to Play" metrics depend on per-player roster data only present there. Don't trim more of this payload without checking whether the frontend still needs those fields.
+
+> **Document size limit — this broke production once.** Firestore caps a single document at 1,048,576 bytes, and this whole cache is *one* document. ESPN attaches a ~5 KB per-stat `cumulativeScore` breakdown to every side of every game — past weeks included — so the doc grew ~80 KB every week until, around Week 7, it hit 1,111,650 bytes. From then on every refresh failed on the write (`INVALID_ARGUMENT ... exceeds the maximum allowed size`), `refreshLeagues` returned 500 every 5 minutes, and the cache silently froze: the dashboard kept serving a ~28-hour-old snapshot, including "live" games that had long since ended (reported as "why is live scoring showing when there's no game going right now"). The standings/roster snapshots that run after the write were skipped too. Fix: `trimScheduleForStorage()` drops `cumulativeScore`, `cumulativeScoreLive`, `rosterForMatchupPeriod` and `rosterForMatchupPeriodDelayed` from every schedule side before storing (nothing reads them), taking the doc to roughly half the limit with far slower growth. `refreshAllLeagues()` also logs a warning once the JSON passes ~1,000,000 bytes (~75% of the real limit), so the next creep shows up in Cloud Logging before it breaks anything. If it ever creeps back, the next candidates are `teams`/`members`/`settings` fields the frontend doesn't read, or splitting leagues into one document each.
 
 **`fantasy-dashboard/live-scoring-prev`** — internal-only, not read by the frontend: `{ points: { [playerId]: pointsAtLastRefresh }, updatedAt }`. Lets `buildLiveScoringBoard()` compare this cycle's points to the previous cycle's to flag a player as having just scored — see Live Scoring, below.
 

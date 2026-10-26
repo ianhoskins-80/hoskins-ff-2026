@@ -468,6 +468,34 @@ async function patchProjectedTrends(results) {
   }
 }
 
+// Firestore caps a single document at 1,048,576 bytes, and the whole
+// dashboard cache (both leagues, every schedule week) lives in ONE doc
+// (fantasy-dashboard/latest). ESPN attaches a ~5 KB per-stat
+// `cumulativeScore` breakdown to every side of every game, past weeks
+// included, so the doc grew ~80 KB every week until it crossed the limit
+// (week 7: 1,111,650 bytes) -- after which every refresh threw
+// INVALID_ARGUMENT on the write, returned 500, and the cache silently
+// froze (the frontend kept showing a stale snapshot, including "live"
+// games that had long since ended). Nothing in the frontend or this file
+// reads these four fields -- the frontend only uses totalPoints,
+// totalProjectedPoints, projectedTrend, winProbability, teamId, and
+// rosterForCurrentScoringPeriod -- so drop them before storing. Must run
+// after the patch* functions above (patchLiveMatchupTotals reads
+// pointsByScoringPeriod, which is kept; none read what's dropped here).
+// Roughly halves the doc (~1.1 MB -> ~0.5 MB) and removes the
+// per-week growth.
+const STORAGE_DROP_SIDE_FIELDS = ['cumulativeScore', 'cumulativeScoreLive', 'rosterForMatchupPeriod', 'rosterForMatchupPeriodDelayed'];
+
+function trimScheduleForStorage(data) {
+  (data.schedule || []).forEach(g => {
+    ['home', 'away'].forEach(side => {
+      const sideData = g[side];
+      if (!sideData) return;
+      STORAGE_DROP_SIDE_FIELDS.forEach(field => { delete sideData[field]; });
+    });
+  });
+}
+
 async function refreshAllLeagues() {
   const results = [];
   for (const league of LEAGUES) {
@@ -475,6 +503,7 @@ async function refreshAllLeagues() {
       const data = await fetchLeague(league.id);
       patchLiveMatchupTotals(data);
       patchLiveProjectedTotals(data);
+      trimScheduleForStorage(data);
       results.push({ color: league.color, data });
     } catch (err) {
       console.error(`Failed to fetch league ${league.id}:`, err.message);
@@ -489,12 +518,20 @@ async function refreshAllLeagues() {
   const gameStatus = await fetchNflGameStatus(currentWeek);
   const liveScoring = await buildLiveScoringBoard(results, gameStatus);
 
-  await firestore.collection('fantasy-dashboard').doc('latest').set({
+  const latestDoc = {
     leagues: results,
     liveScoring,
     gameStatus,
     updatedAt: new Date().toISOString(),
-  });
+  };
+  // Early warning well before Firestore's 1 MiB doc cap (see
+  // trimScheduleForStorage). JSON length runs ~1.3x the stored size, so
+  // 1,000,000 JSON bytes is roughly 75% of the real limit.
+  const approxBytes = JSON.stringify(latestDoc).length;
+  if (approxBytes > 1000000) {
+    console.warn(`fantasy-dashboard/latest is ~${approxBytes} bytes of JSON -- approaching Firestore's 1 MiB document limit`);
+  }
+  await firestore.collection('fantasy-dashboard').doc('latest').set(latestDoc);
 
   await snapshotStandingsIfWeekComplete(results);
   await seedPreseasonStandingsSnapshot(results);
